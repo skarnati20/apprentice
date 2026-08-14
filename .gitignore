@@ -1,0 +1,20 @@
+# Compiled output
+*.fasl
+*.fas
+*.lib
+*.dfsl
+*.x86f
+*.o
+
+# ASDF
+.cache/
+system-index.txt
+
+# Editor
+*~
+\#*\#
+.\#*
+*.swp
+
+# macOS
+.DS_Store
