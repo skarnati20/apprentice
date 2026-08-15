@@ -7,8 +7,11 @@
 
 
 (defun lisp-to-json-string (data)
+  "Encode DATA as JSON. Key symbols are emitted verbatim: cl-json
+   downcases them by default, which mangles camelCase API params."
   (with-output-to-string (s)
-    (json:encode-json data s)))
+    (let ((json:*lisp-identifier-name-to-json* #'string))
+      (json:encode-json data s))))
 
 (defun substitute-subseq (string old new &key (test #'eql))
   "Replace every occurrence of OLD in STRING with NEW."

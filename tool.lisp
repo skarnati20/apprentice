@@ -16,26 +16,28 @@
 (defun run-tool-checks (tool json-response)
   (let* ((checks (tool-checks tool)))
     (loop for check in checks
-	  collect
-	  (funcall check json-response))))
+          collect
+          (funcall check json-response))))
 
 (defun run-tool (tool json-response)
   (funcall (tool-fn tool)
-	   json-response))
+           json-response))
 
 
 ;;;; Tool JSON Handling
+
 
 
 (defun tool->openai (tool)
   "One TOOL struct as an OpenAI-format function definition."
   (j "type" "function"
      "function" (j "name" (tool-name tool)
-		   "description" (tool-description tool)
-		   "parameters" (tool-schema tool))))
+                   "description" (tool-description tool)
+                   "parameters" (tool-schema tool))))
 
 
 ;;;; Permission Directories
+
 
 
 (defun resolve-path (path)
@@ -49,8 +51,8 @@
    cannot be resolved at all counts as outside: checks fail closed."
   (handler-case
       (let ((p (resolve-directory parent))
-	    (c (resolve-path child)))
-	(when (uiop:subpathp c p) t))
+            (c (resolve-path child)))
+        (when (uiop:subpathp c p) t))
     (error () nil)))
 
 (defun is-allowed-path (dirs path)
@@ -63,45 +65,45 @@
    needs something on disk, so the containing directory is checked."
   (and (uiop:absolute-pathname-p path)
        (is-allowed-path dirs (uiop:pathname-directory-pathname path))))
-
-			     
+                               
 ;;;; Tool Macros
+
 
 
 (defmacro deftool (name description params &key checks fn)
   (let* ((name-string (string-downcase (symbol-name name)))
-	 (tool-var (intern (format nil "*~:@(~a~)-TOOL*" name)))
-	 (opt-pos (position '&optional params))
-	 (required (subseq params 0 opt-pos))
-	 (all (remove '&optional params))
-	 (syms (mapcar #'first all))
-	 (args (gensym "ARGS")))
+         (tool-var (intern (format nil "*~:@(~a~)-TOOL*" name)))
+         (opt-pos (position '&optional params))
+         (required (subseq params 0 opt-pos))
+         (all (remove '&optional params))
+         (syms (mapcar #'first all))
+         (args (gensym "ARGS")))
     (labels ((bind (form)
-	       `(lambda (,args)
-		  (declare (ignorable ,args))
-		  (let ,(loop for sym in syms
-			      collect `(,sym (s ,args
-						,(string-downcase
-						  (symbol-name sym)))))
-		    (declare (ignorable ,args))
-		    ,form))))
+               `(lambda (,args)
+                  (declare (ignorable ,args))
+                  (let ,(loop for sym in syms
+                              collect `(,sym (s ,args
+                                                ,(string-downcase
+                                                  (symbol-name sym)))))
+                    (declare (ignorable ,args))
+                    ,form))))
       `(defparameter ,tool-var
-	 (make-tool
-	  :name ,name-string
-	  :description ,description
-	  :schema (j "type" "object"
-		     "properties"
-		     (j ,@(loop for (pname ptype pdesc) in all
-				append (list (string-downcase (symbol-name pname))
-									 `(j "type" ,(string-downcase (symbol-name ptype))
-									     "description" ,pdesc))))
-		     "required"
-		     (list ,@(mapcar (lambda (p) (string-downcase
-						  (symbol-name (first p))))
-				     required)))
-	  :fn ,(bind fn)
-	  :checks (list ,@(loop for (test msg) in checks
-				collect (bind `(unless ,test ,msg)))))))))
+         (make-tool
+          :name ,name-string
+          :description ,description
+          :schema (j "type" "object"
+                     "properties"
+                     (j ,@(loop for (pname ptype pdesc) in all
+                               append (list (string-downcase (symbol-name pname))
+                                           `(j "type" ,(string-downcase (symbol-name ptype))
+                                               "description" ,pdesc))))
+                     "required"
+                     (list ,@(mapcar (lambda (p) (string-downcase
+                                              (symbol-name (first p))))
+                                   required)))
+          :fn ,(bind fn)
+          :checks (list ,@(loop for (test msg) in checks
+                                collect (bind `(unless ,test ,msg)))))))))
 
 
 ;;;; Tool Definitions
@@ -162,10 +164,43 @@
                     (and (string/= err "") err)
                     code))))
 
+(defparameter *exa-endpoint* "https://api.exa.ai/search")
+
+(defun format-search-result (r)
+  "One Exa result as title, url, then its highlight excerpts."
+  (format nil "~a~%~a~%~{~a~^~%~}"
+	  (s r "title") (s r "url") (s r "highlights")))
+
+(deftool web-search
+    "Search the web using the Exa search API. Returns results with title, URL, and highlights."
+    ((query :string "The search query")
+     &optional
+     (limit :integer "Maximum number of results to return, default 5")
+     (mode  :string "Search type: auto, fast, instant, deep-lite, deep, or deep-reasoning. Default auto."))
+  :checks (((uiop:getenv "EXA_API_KEY") "EXA_API_KEY environment variable is not set"))
+  :fn (let* ((body (lisp-to-json-string
+		    (j "query" query
+		       "type" (or mode "auto")
+		       "numResults" (or limit 5)
+		       "contents" (j "highlights" t))))
+	     (raw (run-argv (list "curl" "-s" *exa-endpoint*
+				  "-H" (format nil "x-api-key: ~a"
+					       (uiop:getenv "EXA_API_KEY"))
+				  "-H" "Content-Type: application/json"
+				  "--data-binary" "@-")
+			    :input body
+			    :limit most-positive-fixnum))
+	     (results (s (json:decode-json-from-string raw) "results")))
+	(if results
+	    (truncate-output
+	     (format nil "~{~a~^~%~%~}" (mapcar #'format-search-result results))
+	     6000)
+	    raw)))
+
 
 ;;;; Tool Bundles
 
 
+
 (defparameter *standard-tools*
-  (list *grep-tool* *read-tool* *write-tool* *bash-tool*))
-    
+  (list *grep-tool* *read-tool* *write-tool* *bash-tool* *web-search-tool*))
