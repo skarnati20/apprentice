@@ -9,7 +9,7 @@
 
 (defun chat (prompt)
   (destructuring-bind (content msgs)
-      (run-agent prompt :tools *standard-tools* :history *chat-history*)
+      (little-coder-loop prompt :history *chat-history*)
     (setf *chat-history* msgs)
     (format t "~a" content)))
 

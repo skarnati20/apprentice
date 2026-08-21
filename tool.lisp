@@ -13,6 +13,7 @@
 
 ;;;; Tool Logic Handling
 
+
 (defun run-tool-checks (tool json-response)
   (let* ((checks (tool-checks tool)))
     (loop for check in checks
@@ -27,7 +28,6 @@
 ;;;; Tool JSON Handling
 
 
-
 (defun tool->openai (tool)
   "One TOOL struct as an OpenAI-format function definition."
   (j "type" "function"
@@ -37,7 +37,6 @@
 
 
 ;;;; Permission Directories
-
 
 
 (defun resolve-path (path)
@@ -65,9 +64,34 @@
    needs something on disk, so the containing directory is checked."
   (and (uiop:absolute-pathname-p path)
        (is-allowed-path dirs (uiop:pathname-directory-pathname path))))
-                               
-;;;; Tool Macros
 
+
+;;;; Bash Permissions
+
+
+(defparameter *bash-whitelist*
+  '("ls" "cat" "head" "tail" "wc" "pwd" "echo" "printf" "date"
+    "which" "type" "env" "printenv" "uname" "whoami" "id"
+    "git log" "git status" "git diff" "git show" "git branch"
+    "git remote" "git stash list" "git tag"
+    "find " "grep " "rg " "ag " "fd " "sed "
+    "python " "python3 " "node " "ruby " "perl "
+    "pip show" "pip list" "npm list" "cargo metadata"
+    "df " "du " "free " "top -bn" "ps "
+    "curl -I" "curl --head"
+    ;; Routine filesystem scaffolding. Trailing space = word boundary, so
+    ;; "cp " matches "cp a b" but not "cpufetch". rm stays off the list by
+    ;; design; use LITTLE_CODER_BASH_ALLOW=rm if a deployment needs it.
+    "cp " "mv " "mkdir " "touch ")
+  "Command prefixes permitted without confirmation.")
+
+(defun is-allowed-bash (command)
+  (some (lambda (x) (eq x 't))
+		  (mapcar
+		   (lambda (x) (starts-with-p command x))
+		   *bash-whitelist*)))
+
+;;;; Tool Macros
 
 
 (defmacro deftool (name description params &key checks fn)
@@ -106,7 +130,7 @@
                                 collect (bind `(unless ,test ,msg)))))))))
 
 
-;;;; Tool Definitions
+;;;; Standard Tool Definitions
 
 
 (deftool grep
@@ -115,7 +139,9 @@
      (path    :string "Directory or file to search in")
      &optional
      (glob    :string "Optional filename filter, e.g. *.lisp"))
-  :checks (((is-allowed-path *allowed-dirs* path) "Not allowed to access this path"))
+  :checks (((is-allowed-path *allowed-dirs* path)
+	    (format nil "Not allowed to access this path. Allowed dirs: ~a"
+		    (format nil "~{~A~^, ~}" *allowed-dirs*))))
   :fn (run-argv (append (list "grep" "-rn")
                         (when glob (list "--include" glob))
                         (list "-e" pattern path))))
@@ -126,7 +152,9 @@
      &optional
      (offset :integer "1-based line to start from, default 1")
      (limit  :integer "Maximum lines to read, default 2000"))
-  :checks (((is-allowed-path *allowed-dirs* path) "Not allowed to access this path"))
+  :checks (((is-allowed-path *allowed-dirs* path)
+	    (format nil "Not allowed to access this path. Allowed dirs: ~a"
+		     (format nil "~{~A~^, ~}" *allowed-dirs*))))
   :fn (let ((start (or offset 1)) (n (or limit 2000)))
         (with-open-file (in path :external-format :utf-8)
           (loop for i from 1
@@ -140,7 +168,9 @@
     "Write text to a file, creating it or overwriting it entirely."
     ((path    :string "Absolute path of the file to write")
      (content :string "Full text to write to the file"))
-  :checks (((is-allowed-new-path *allowed-dirs* path) "Not allowed to write to this path"))
+  :checks (((is-allowed-new-path *allowed-dirs* path)
+	    (format nil "Not allowed to edit at this path. Allowed dirs: ~a"
+		     (format nil "~{~A~^, ~}" *allowed-dirs*))))
   :fn (progn
         (with-open-file (out path :direction :output :if-exists :supersede
                                   :if-does-not-exist :create :external-format :utf-8)
@@ -163,6 +193,10 @@
                     (and (string/= out "") out)
                     (and (string/= err "") err)
                     code))))
+
+
+;;;; Web Tools
+
 
 (defparameter *exa-endpoint* "https://api.exa.ai/search")
 
@@ -198,9 +232,84 @@
 	    raw)))
 
 
-;;;; Tool Bundles
+;;;; Little Coder Tools
 
+
+(deftool little-coder-write
+  "Write text to a new file. Does not work with existing files. To edit, use an edit tool."
+  ((path    :string "Absolute path of the file to write")
+   (content :string "Full text to write to the file"))
+  :checks (((is-allowed-new-path *allowed-dirs* path)
+	    (format nil "Not allowed to edit at this path. Allowed dirs: ~a"
+		     (format nil "~{~A~^, ~}" *allowed-dirs*)))
+	   ((not (uiop:file-exists-p path)) "Not allowed to write to existing file. Use an edit tool instead."))
+  :fn (progn
+	(with-open-file (out path :direction :output
+				  :if-exists :error
+				  :if-does-not-exist :create :external-format :utf-8)
+	  (write-string content out))
+	(format nil "Wrote ~a lines to ~a" (1+ (count #\Newline content)) path)))
+
+(deftool little-coder-edit
+  "Edits text of an existing file. To write a new file, use the write tool."
+  ((path         :string "Absolute path of the file to write")
+   (start-offset :integer "First character in the file to overwrite")
+   (end-offset   :integer "Last character in the file to overwrite")
+   (content      :string "Content to insert when overwriting file section between START-LINE and END-LINE"))
+  :checks (((is-allowed-path *allowed-dirs* path)
+	    (format nil "Not allowed to edit at this path. Allowed dirs: ~a"
+		     (format nil "~{~A~^, ~}" *allowed-dirs*)))
+	   ((uiop:file-exists-p path)
+	    "File does not exist. To write a new file, use the write tool.")
+	   ((<= start-offset end-offset) "END-OFFSET cannot be less than START-OFFSET"))
+  :fn (let* ((original (uiop:read-file-string path :external-format :utf-8))
+           (len (length original)))
+      (cond
+        ((> start-offset len)
+         (format nil "START-OFFSET ~a is past end of file (~a characters)"
+                 start-offset len))
+        ((> end-offset len)
+         (format nil "END-OFFSET ~a is past end of file (~a characters)"
+                 end-offset len))
+        (t
+         (let ((new (concatenate 'string
+                                 (subseq original 0 start-offset)
+                                 content
+                                 (subseq original end-offset))))
+           (with-open-file (out path :direction :output
+                                     :if-exists :supersede
+                                     :external-format :utf-8)
+             (write-string new out))
+           (format nil "Replaced ~a characters with ~a characters in ~a"
+                   (- end-offset start-offset) (length content) path))))))
+
+(deftool little-coder-bash
+    "Run a shell command in the repository directory. Returns combined stdout and stderr."
+    ((command :string "The shell command to run"))
+  :checks (((first *allowed-dirs*) "No allowed directory is configured")
+	   ((is-allowed-bash command)
+	    (format nil "Not an allowed command. These are allowed commands: ~a"
+		    (format nil "~{~A~^, ~}" *bash-whitelist*))))
+  :fn (multiple-value-bind (out err code)
+          (uiop:run-program (list "/bin/sh" "-c" command)
+                            :output '(:string :stripped t)
+                            :error-output '(:string :stripped t)
+                            :ignore-error-status t
+                            :directory (resolve-directory (first *allowed-dirs*)))
+        (if (and (zerop code) (string= err ""))
+            (if (string= out "") "(no output)" out)
+            (format nil "~@[~a~%~]~@[~a~%~]exit status: ~a"
+                    (and (string/= out "") out)
+                    (and (string/= err "") err)
+                    code))))
+
+
+;;;; Tool Bundles
 
 
 (defparameter *standard-tools*
   (list *grep-tool* *read-tool* *write-tool* *bash-tool* *web-search-tool*))
+
+(defparameter *little-coder-tools*
+  (list *grep-tool* *read-tool* *little-coder-write-tool* *little-coder-edit-tool*
+	*little-coder-bash-tool* *web-search-tool*))

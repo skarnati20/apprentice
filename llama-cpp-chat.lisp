@@ -31,7 +31,9 @@
 (defun format-option (key value)
   "Formats KEY and VALUE from options in llama.cpp request."
   (cond
-    ((eq key :max-tokens) (list (cons :|max-tokens| value)))
+    ((eq key :thinking) (list (cons :|chat_template_kwargs|
+				    (j "enable_thinking" (if value t :false)))))
+    ((eq key :max-tokens) (list (cons :|max_tokens| value)))
     (t nil)))
 
 (defun format-options (options)

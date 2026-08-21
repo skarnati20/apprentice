@@ -6,12 +6,33 @@
 ;;;; Formatting
 
 
+(defmethod json:encode-json ((x (eql :false)) &optional stream)
+  "Emit JSON false. CL-JSON maps NIL to null, and a NIL alist value
+   collapses the pair into a one-element list that encodes as an
+   array, so booleans need their own marker."
+  (write-string "false" stream))
+
 (defun lisp-to-json-string (data)
-  "Encode DATA as JSON. Key symbols are emitted verbatim: cl-json
-   downcases them by default, which mangles camelCase API params."
+  "Encode DATA as JSON. Key symbols go through cl-json's usual
+   mapping, which is what round-trips decoded messages: :ROLE back to
+   role, :REASONING--CONTENT back to reasoning_content."
+  (with-output-to-string (s)
+    (json:encode-json data s)))
+
+(defun lisp-to-verbatim-json-string (data)
+  "Encode DATA as JSON with key symbols emitted exactly as named.
+   For APIs wanting literal camelCase params: the default encoder
+   would downcase numResults to numresults. Only safe for alists
+   built by hand, never for anything cl-json decoded."
   (with-output-to-string (s)
     (let ((json:*lisp-identifier-name-to-json* #'string))
       (json:encode-json data s))))
+
+(defun starts-with-p (string prefix)
+  "True when STRING begins with PREFIX."
+  (let ((end (length prefix)))
+    (and (<= end (length string))
+         (string= prefix string :end2 end))))
 
 (defun substitute-subseq (string old new &key (test #'eql))
   "Replace every occurrence of OLD in STRING with NEW."
