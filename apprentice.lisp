@@ -4,7 +4,7 @@
 
 
 (defvar *chat-history* nil)
-(defparameter *allowed-dirs* nil)
+(defvar *allowed-dirs* nil)
 
 
 (defun resolve-loop (loop-symbol)
