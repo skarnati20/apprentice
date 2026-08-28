@@ -9,11 +9,10 @@
 
 (defun resolve-loop (loop-symbol)
   "Returns the appropriate loop function symbol or nil if unknown."
-  (ecase loop-symbol
+  (case loop-symbol
     (:little-coder 'little-coder-loop)
-    (:standard 'standard-loop)
-    (:default 'standard-loop)
-    (t nil)))
+    ((:standard :default nil t) 'standard-loop)
+    (otherwise nil)))
 
 (defun chat (prompt &optional loop-symbol)
   "CHAT runs a conversation using the specified loop.
@@ -26,7 +25,7 @@
   (let ((loop-fn (resolve-loop loop-symbol)))
     (if loop-fn
         (destructuring-bind (content msgs)
-            (funcall loop-fn prompt)
+            (funcall loop-fn prompt :history *chat-history*)
           (setf *chat-history* msgs)
           (format t "~a" content))
       (error "Unknown loop: ~a" loop-symbol))))

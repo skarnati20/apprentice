@@ -8,6 +8,6 @@
   :components ((:file "package")
 	       (:file "helpers")
 	       (:file "tool")
-	       (:file "llama-cpp-chat")
+	       (:file "model")
 	       (:file "loop")
 	       (:file "apprentice")))

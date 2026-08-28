@@ -7,23 +7,20 @@
 
 
 (defmethod json:encode-json ((x (eql :false)) &optional stream)
-  "Emit JSON false. CL-JSON maps NIL to null, and a NIL alist value
-   collapses the pair into a one-element list that encodes as an
-   array, so booleans need their own marker."
+  "CL-JSON maps NIL to null, and a NIL alist value collapses into a
+   one-element list encoding as an array, so false needs a marker."
   (write-string "false" stream))
 
 (defun lisp-to-json-string (data)
-  "Encode DATA as JSON. Key symbols go through cl-json's usual
-   mapping, which is what round-trips decoded messages: :ROLE back to
-   role, :REASONING--CONTENT back to reasoning_content."
+  "Key symbols take cl-json's usual mapping, which round-trips decoded
+   messages: :ROLE back to role, :REASONING--CONTENT to reasoning_content."
   (with-output-to-string (s)
     (json:encode-json data s)))
 
 (defun lisp-to-verbatim-json-string (data)
-  "Encode DATA as JSON with key symbols emitted exactly as named.
-   For APIs wanting literal camelCase params: the default encoder
-   would downcase numResults to numresults. Only safe for alists
-   built by hand, never for anything cl-json decoded."
+  "Key symbols emitted exactly as named, for APIs wanting literal
+   camelCase: the default encoder downcases numResults. Only safe for
+   hand-built alists, never for anything cl-json decoded."
   (with-output-to-string (s)
     (let ((json:*lisp-identifier-name-to-json* #'string))
       (json:encode-json data s))))
@@ -62,12 +59,14 @@
         collect (cons (intern k :keyword) v)))
 
 (defun s (obj &rest keys)
-  "Walks OBJ down through list of KEYS. Returns
-   value at end of walk, otherwise NIL."
+  "Walks OBJ down through list of KEYS. Returns value at end of walk,
+   otherwise NIL. Underscores in a KEY are translated: CL-JSON decodes
+   \"tool_calls\" to :TOOL--CALLS."
   (let ((curr obj))
     (dolist (k keys curr)
       (when (null curr) (return nil))
-      (setf curr (cdr (assoc k curr :key #'symbol-name :test #'string-equal))))))
+      (setf curr (cdr (assoc (substitute-subseq k "_" "--") curr
+			     :key #'symbol-name :test #'string-equal))))))
 
 
 ;;;; Command Running
