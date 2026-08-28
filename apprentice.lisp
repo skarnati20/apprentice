@@ -3,8 +3,22 @@
 (in-package :apprentice)
 
 
+;;;; Harness State
+
+
 (defvar *chat-history* nil)
 (defvar *allowed-dirs* nil)
+
+(defparameter *models-list*
+  (list *llama-cpp-model*
+	*claude-sonnet-5-model*
+	*gpt-5.6-terra-model*))
+
+(defparameter *model* *llama-cpp-model*
+  "Default model for the agent loops.")
+
+
+;;;; Harness Functions
 
 
 (defun resolve-loop (loop-symbol)
@@ -14,7 +28,7 @@
     ((:standard :default nil t) 'standard-loop)
     (otherwise nil)))
 
-(defun chat (prompt &optional loop-symbol)
+(defun chat (prompt &optional loop-symbol &rest options)
   "CHAT runs a conversation using the specified loop.
    
   LOOP-SYMBOL can be one of:
@@ -25,10 +39,25 @@
   (let ((loop-fn (resolve-loop loop-symbol)))
     (if loop-fn
         (destructuring-bind (content msgs)
-            (funcall loop-fn prompt :history *chat-history*)
+            (apply loop-fn prompt :history *chat-history* options)
           (setf *chat-history* msgs)
           (format t "~a" content))
-      (error "Unknown loop: ~a" loop-symbol))))
+	(error "Unknown loop: ~a" loop-symbol))))
+
+(defun print-models ()
+  (let ((model-names (loop for model in *models-list*
+			   collect (model-name model))))
+    (mapcar (lambda (model) (format t "~a" model)) model-names)
+    model-names))
+
+(defun set-model (name)
+  (let ((model (find-if (lambda (m) (equalp name (model-name m)))
+			*models-list*)))
+    (if model
+	(progn
+	  (format t "Set model to `~a`" name)
+	  (setf *model* model))
+	(format t "No model named ~a" name))))
 
 (defun add-allowed-dir (dir)
   (push dir *allowed-dirs*))

@@ -77,17 +77,18 @@
 	(setf wire   (append wire ms))
 	(setf fields (append fields fs))))))
 
-(defun build-request-json (params options msgs fields tools)
+(defun build-request-json (params options msgs fields tools messages-key)
   (lisp-to-json-string
    (append (loop for p in params append (param-pair p options))
 	   fields
-	   (list (cons :|messages| msgs))
+	   (list (cons (intern messages-key :keyword) msgs))
 	   (when tools (list (cons :|tools| tools))))))
 
 (defun http-post (endpoint headers json)
   (run-argv (append (list "curl" "-s" "--max-time" "120" endpoint)
 		    (loop for (name value) in headers
-			  append (list "-H" (format nil "~a: ~a" name value)))
+			  when value
+			    append (list "-H" (format nil "~a: ~a" name value)))
 		    (list "--data-binary" "@-"))
 	    :input json
 	    :limit most-positive-fixnum))
@@ -100,6 +101,7 @@
 			   headers
 			   params
 			   format-message
+			   messages-key
 			   format-tool
 			   parse)
   "FORMAT-MESSAGE, FORMAT-TOOL and PARSE are bodies, not functions:
@@ -126,7 +128,8 @@
 			    (mapcar (lambda (tool)
 				      (declare (ignorable tool))
 				      ,format-tool)
-				    tools)))
+				    tools)
+			    (or ,messages-key "messages")))
 		     (raw (json:decode-json-from-string
 			   (http-post ,endpoint
 				      (list ,@(mapcar (lambda (h) `(list ,@h)) headers))
@@ -176,6 +179,126 @@
 	   msg)))))
 
 
+;;;; Anthropic Wire Format
+
+
+(defun tool->anthropic (tool)
+  (j "name"         (tool-name tool)
+     "description"  (tool-description tool)
+     "input_schema" (tool-schema tool)))
+
+(defun anthropic-format-message (msg)
+  (case (and (consp msg) (keywordp (first msg)) (first msg))
+    (:system (values nil (j "system" (second msg))))
+    (:user   (list (j "role" "user" "content" (second msg))))
+    (:tool-results
+     (list (j "role" "user"
+	      "content" (mapcar (lambda (r)
+				  (j "type"        "tool_result"
+				     "tool_use_id" (car r)
+				     "content"     (cdr r)))
+				(second msg)))))
+    (t (list msg))))
+
+(defun anthropic-parse (raw)
+  (let ((err (s raw "error")))
+    (if err
+	(values (format nil "API error: ~a" (s err "message")) nil :error nil)
+	(let* ((blocks (s raw "content"))
+	       (stop   (s raw "stop_reason"))
+	       (uses   (remove-if-not (lambda (b) (equal (s b "type") "tool_use"))
+				      blocks))
+	       (texts  (loop for b in blocks
+			     when (equal (s b "type") "text")
+			       collect (s b "text"))))
+	  (values
+	   (when texts (format nil "~{~a~}" texts))
+	   (mapcar (lambda (b)
+		     (make-tool-call :id   (s b "id")
+				     :name (s b "name")
+				     :args (s b "input")))
+		   uses)
+	   (cond ((null blocks)             :error)
+		 ((equal stop "max_tokens") :overflow)
+		 ((equal stop "refusal")    :refusal)
+		 (uses                      :tool-use)
+		 (t                         :end))
+	   (j "role" "assistant" "content" blocks))))))
+
+
+;;;; OpenAI Responses Wire Format
+
+
+(defparameter *openai-responses-array-fields* '("summary" "content")
+  "Fields the Responses API requires to be arrays. CL-JSON decodes an
+   empty JSON array to NIL and re-encodes NIL as null, so they have to
+   be restored when items are echoed back.")
+
+(defun fix-openai-responses-item (item)
+  (if (alist-p item)
+      (loop for (k . v) in item
+	    collect (cons k (if (and (null v)
+				     (member (symbol-name k)
+					     *openai-responses-array-fields*
+					     :test #'string-equal))
+				#()
+				v)))
+      item))
+
+(defun tool->openai-responses (tool)
+  (j "type"        "function"
+     "name"        (tool-name tool)
+     "description" (tool-description tool)
+     "parameters"  (tool-schema tool)))
+
+(defun openai-responses-format-message (msg)
+  (case (and (consp msg) (keywordp (first msg)) (first msg))
+    (:system (values nil (j "instructions" (second msg))))
+    (:user   (list (j "role" "user"
+		      "content" (list (j "type" "input_text"
+					 "text" (second msg))))))
+    (:tool-results
+     (mapcar (lambda (r)
+	       (j "type"    "function_call_output"
+		  "call_id" (car r)
+		  "output"  (cdr r)))
+	     (second msg)))
+    (:items (mapcar #'fix-openai-responses-item (second msg)))
+    (t (list msg))))
+
+(defun openai-responses-parse (raw)
+  (let ((err (s raw "error")))
+    (if err
+	(values (format nil "API error: ~a" (s err "message")) nil :error nil)
+	(let* ((items (s raw "output"))
+	       (status (s raw "status"))
+	       (reason (s raw "incomplete_details" "reason"))
+	       (calls (remove-if-not
+		       (lambda (i) (equal (s i "type") "function_call"))
+		       items))
+	       (texts (loop for i in items
+			    when (equal (s i "type") "message")
+			      append (loop for c in (s i "content")
+					   when (equal (s c "type") "output_text")
+					     collect (s c "text")))))
+	  (values
+	   (when texts (format nil "~{~a~}" texts))
+	   (mapcar (lambda (i)
+		     (make-tool-call
+		      :id   (s i "call_id")
+		      :name (s i "name")
+		      :args (handler-case
+				(json:decode-json-from-string (s i "arguments"))
+			      (error () :malformed))))
+		   calls)
+	   (cond ((null items)                      :error)
+		 ((equal reason "max_output_tokens") :overflow)
+		 ((equal status "incomplete")        :overflow)
+		 (calls                              :tool-use)
+		 (t                                  :end))
+	   (list :items items))))))
+
+
 ;;;; Available Models
 
 (defmodel llama-cpp
@@ -195,11 +318,32 @@
   :parse          (openai-parse raw))
 
 
-;;;; Models List
+(defmodel claude-sonnet-5
+  :endpoint "https://api.anthropic.com/v1/messages"
+  :headers (("Content-Type"      "application/json")
+	    ("anthropic-version" "2023-06-01")
+	    ("x-api-key"         (uiop:getenv "ANTHROPIC_API_KEY"))
+	    ("anthropic-workspace-id" (uiop:getenv "ANTHROPIC_WORKSPACE_ID")))
+  :params ((model      :default "claude-sonnet-5")
+	   (max-tokens :default 16000)
+	   (stop       "stop_sequences")
+	   (stream     :default nil :as (if value t :false))
+	   (thinking   :as (j "type" (if value "adaptive" "disabled")))
+	   (effort     "output_config" :as (j "effort" value)))
+  :format-message (anthropic-format-message msg)
+  :format-tool    (tool->anthropic tool)
+  :parse          (anthropic-parse raw))
 
 
-(defvar *models-list*
-  '(*llama-cpp-model*))
-
-(defparameter *model* *llama-cpp-model*
-  "Default model for the agent loops.")
+(defmodel gpt-5.6-terra
+  :endpoint "https://api.openai.com/v1/responses"
+  :headers (("Content-Type"  "application/json")
+	    ("Authorization" (format nil "Bearer ~a" (uiop:getenv "OPENAI_API_KEY"))))
+  :messages-key "input"
+  :params ((model      :default "gpt-5.6-terra")
+	   (max-tokens "max_output_tokens" :default 16000)
+	   (stream     :default nil :as (if value t :false))
+	   (effort     "reasoning" :default "medium" :as (j "effort" value)))
+  :format-message (openai-responses-format-message msg)
+  :format-tool    (tool->openai-responses tool)
+  :parse          (openai-responses-parse raw))

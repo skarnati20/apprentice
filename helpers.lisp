@@ -25,6 +25,9 @@
     (let ((json:*lisp-identifier-name-to-json* #'string))
       (json:encode-json data s))))
 
+(defun alist-p (x)
+  (and (consp x) (consp (first x)) (atom (car (first x)))))
+
 (defun starts-with-p (string prefix)
   "True when STRING begins with PREFIX."
   (let ((end (length prefix)))
