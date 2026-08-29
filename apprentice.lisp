@@ -12,7 +12,8 @@
 (defvar *models-list*
   (list *llama-cpp-model*
 	*claude-sonnet-5-model*
-	*gpt-5.6-terra-model*))
+	*gpt-5.6-terra-model*
+	*gemini-3.7-flash-model*))
 
 (defvar *model* *llama-cpp-model*
   "Default model for the agent loops.")
@@ -44,10 +45,9 @@
           (format t "~a" content))
 	(error "Unknown loop: ~a" loop-symbol))))
 
-(defun print-models ()
+(defun models ()
   (let ((model-names (loop for model in *models-list*
 			   collect (model-name model))))
-    (mapcar (lambda (model) (format t "~a" model)) model-names)
     model-names))
 
 (defun curr-model ()

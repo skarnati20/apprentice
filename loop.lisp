@@ -19,14 +19,15 @@
 	 (error (e) (format nil "Tool ~a failed: ~a" name e)))))))
 
 (defun run-calls (calls tools)
-  "Alist of call id to output. One turn's results travel together:
-   some providers require them batched into a single message."
+  "List of (ID NAME OUTPUT) per call. One turn's results travel
+   together: some providers require them batched into a single message,
+   and some need the function name alongside the id."
   (loop for call in calls
 	for name   = (tool-call-name call)
 	for args   = (tool-call-args call)
 	for result = (dispatch-tool name args tools)
 	do (format t "~&→ ~a ~s~%~a~%" name args result)
-	collect (cons (tool-call-id call) result)))
+	collect (list (tool-call-id call) name result)))
 
 (defparameter *loop-keys*
   '(:model :system-prompt :system :tools :max-turns :history)

@@ -157,8 +157,8 @@
     (:tool-results
      (mapcar (lambda (r)
 	       (j "role"         "tool"
-		  "tool_call_id" (car r)
-		  "content"      (cdr r)))
+		  "tool_call_id" (first r)
+		  "content"      (third r)))
 	     (turn-results turn)))
     (:assistant
      (list (append (j "role" "assistant" "content" (turn-text turn))
@@ -217,8 +217,8 @@
      (list (j "role" "user"
 	      "content" (mapcar (lambda (r)
 				  (j "type"        "tool_result"
-				     "tool_use_id" (car r)
-				     "content"     (cdr r)))
+				     "tool_use_id" (first r)
+				     "content"     (third r)))
 				(turn-results turn)))))
     (:assistant
      (list (j "role" "assistant"
@@ -279,8 +279,8 @@
     (:tool-results
      (mapcar (lambda (r)
 	       (j "type"    "function_call_output"
-		  "call_id" (car r)
-		  "output"  (cdr r)))
+		  "call_id" (first r)
+		  "output"  (third r)))
 	     (turn-results turn)))
     (:assistant
      (append (when (turn-text turn)
@@ -330,7 +330,71 @@
 		 (t                                  :end)))))))
 
 
+;;;; Gemini Interactions Wire Format
+
+
+(defun tool->gemini (tool)
+  (j "type"        "function"
+     "name"        (tool-name tool)
+     "description" (tool-description tool)
+     "parameters"  (tool-schema tool)))
+
+(defun gemini-format-message (turn)
+  (case (turn-role turn)
+    (:system (values nil (j "system_instruction" (turn-text turn))))
+    (:user   (list (j "type" "user_input" "content" (turn-text turn))))
+    (:tool-results
+     (mapcar (lambda (r)
+	       (j "type"    "function_result"
+		  "call_id" (first r)
+		  "name"    (second r)
+		  "result"  (list (j "type" "text" "text" (third r)))))
+	     (turn-results turn)))
+    (:assistant
+     (append (when (turn-text turn)
+	       (list (j "type" "model_output"
+			"content" (list (j "type" "text"
+					   "text" (turn-text turn))))))
+	     (mapcar (lambda (c)
+		       (j "type"      "function_call"
+			  "id"        (tool-call-id c)
+			  "name"      (tool-call-name c)
+			  ;; Already an object here, unlike every other
+			  ;; provider, which wants a JSON string.
+			  "arguments" (tool-call-args c)))
+		     (turn-calls turn))))))
+
+(defun gemini-parse (raw)
+  (let ((err (s raw "error")))
+    (if err
+	(make-turn :role :assistant :stop :error
+		   :text (format nil "API error: ~a" (s err "message")))
+	(let* ((steps  (s raw "steps"))
+	       (status (s raw "status"))
+	       (calls  (remove-if-not
+			(lambda (st) (equal (s st "type") "function_call"))
+			steps))
+	       (texts  (loop for st in steps
+			     when (equal (s st "type") "model_output")
+			       append (loop for c in (s st "content")
+					    when (equal (s c "type") "text")
+					      collect (s c "text")))))
+	  (make-turn
+	   :role :assistant
+	   :text (when texts (format nil "~{~a~}" texts))
+	   :calls (mapcar (lambda (st)
+			    (make-tool-call :id   (s st "id")
+					    :name (s st "name")
+					    :args (s st "arguments")))
+			  calls)
+	   :stop (cond ((null steps)                  :error)
+		       ((equal status "incomplete")   :overflow)
+		       (calls                         :tool-use)
+		       (t                             :end)))))))
+
+
 ;;;; Available Models
+
 
 (defmodel llama-cpp
   :endpoint "http://localhost:8080/v1/chat/completions"
@@ -378,3 +442,16 @@
   :format-message (openai-responses-format-message msg)
   :format-tool    (tool->openai-responses tool)
   :parse          (openai-responses-parse raw))
+
+
+(defmodel gemini-3.7-flash
+  :endpoint "https://generativelanguage.googleapis.com/v1/interactions"
+  :headers (("Content-Type"   "application/json")
+	    ("x-goog-api-key" (uiop:getenv "GEMINI_API_KEY")))
+  :messages-key "input"
+  :params ((model  :default "gemini-3.7-flash")
+	   (store  :default :false)
+	   (stream :default nil :as (if value t :false)))
+  :format-message (gemini-format-message msg)
+  :format-tool    (tool->gemini tool)
+  :parse          (gemini-parse raw))
