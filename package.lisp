@@ -3,8 +3,14 @@
 
 (defpackage #:apprentice
   (:use #:cl)
-  (:export #:chat
+  (:export ;; Conversation
+	   #:chat
 	   #:clear
+	   #:resolve-loop
+	   ;; Models
+	   #:models
+	   #:curr-model
+	   #:set-model
+	   ;; Permissions
 	   #:add-allowed-dir
-	   #:clear-allowed-dirs
-	   #:resolve-loop))
+	   #:clear-allowed-dirs))
