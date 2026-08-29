@@ -9,12 +9,12 @@
 (defvar *chat-history* nil)
 (defvar *allowed-dirs* nil)
 
-(defparameter *models-list*
+(defvar *models-list*
   (list *llama-cpp-model*
 	*claude-sonnet-5-model*
 	*gpt-5.6-terra-model*))
 
-(defparameter *model* *llama-cpp-model*
+(defvar *model* *llama-cpp-model*
   "Default model for the agent loops.")
 
 
@@ -49,6 +49,9 @@
 			   collect (model-name model))))
     (mapcar (lambda (model) (format t "~a" model)) model-names)
     model-names))
+
+(defun curr-model ()
+  (model-name *model*))
 
 (defun set-model (name)
   (let ((model (find-if (lambda (m) (equalp name (model-name m)))
