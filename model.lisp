@@ -5,6 +5,7 @@
 
 ;;;; Definitions
 
+
 (defstruct model
   name
   call-fn)
@@ -14,24 +15,29 @@
   name
   args)
 
+(defstruct turn
+  role
+  text
+  thinking
+  calls
+  results
+  stop)
+
 
 ;;;; Model Functions
 
 
 (defun run-model (model msgs tools &rest options)
-  "MSGS holds neutral records -- (:system text), (:user text),
-   (:tool-results ((id . output) ...)) -- and raw assistant messages,
-   which pass back unchanged. Returns (values CONTENT CALLS STOP MSG);
-   STOP is :END :TOOL-USE :OVERFLOW :REFUSAL or :ERROR."
   (apply (model-call-fn model) msgs tools options))
+
 
 ;;;; Request Parameters
 
 
 (defstruct param
   name
-  wire
-  default    ; :NONE means omit the key unless the caller supplies it
+  key
+  default
   transform)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -39,13 +45,13 @@
   "Expansion-time: one DEFMODEL :PARAMS row to a form building a PARAM."
   (let* ((name (first row))
 	 (rest (rest row))
-	 (wire (if (stringp (first rest))
+	 (key (if (stringp (first rest))
 		   (pop rest)
 		   (substitute #\_ #\- (string-downcase (symbol-name name)))))
 	 (default (getf rest :default :none))
 	 (as (getf rest :as)))
     `(make-param :name ,(intern (symbol-name name) :keyword)
-		 :wire ,wire
+		 :key ,key
 		 :default ',default
 		 :transform ,(when as
 			       `(lambda (value)
@@ -53,10 +59,10 @@
 				  ,as))))))
 
 (defun param-pair (param options)
-  "The wire key and value PARAM contributes, or NIL to omit it."
+  "The JSON key and value PARAM contributes, or NIL to omit it."
   (let ((value (getf options (param-name param) (param-default param))))
     (unless (eq value :none)
-      (list (cons (intern (param-wire param) :keyword)
+      (list (cons (intern (param-key param) :keyword)
 		  (if (param-transform param)
 		      (funcall (param-transform param) value)
 		      value))))))
@@ -68,19 +74,20 @@
 		    key (mapcar #'param-name params))))
 
 (defun format-messages (msgs formatter)
-  "Accumulates (values MESSAGES FIELDS). A formatter returns a list of
-   messages and, optionally, top-level request fields -- which is how a
-   provider lifts the system prompt out of the message array."
-  (let ((wire nil) (fields nil))
-    (dolist (msg msgs (values wire fields))
+  "Accumulates (values MESSAGES TOP-LEVEL-FIELDS). A formatter returns a
+   list of messages and, optionally, fields for the top level of the
+   request body -- which is how a provider lifts the system prompt out
+   of the message array."
+  (let ((out nil) (top-level-fields nil))
+    (dolist (msg msgs (values out top-level-fields))
       (multiple-value-bind (ms fs) (funcall formatter msg)
-	(setf wire   (append wire ms))
-	(setf fields (append fields fs))))))
+	(setf out    (append out ms))
+	(setf top-level-fields (append top-level-fields fs))))))
 
-(defun build-request-json (params options msgs fields tools messages-key)
+(defun build-request-json (params options msgs top-level-fields tools messages-key)
   (lisp-to-json-string
    (append (loop for p in params append (param-pair p options))
-	   fields
+	   top-level-fields
 	   (list (cons (intern messages-key :keyword) msgs))
 	   (when tools (list (cons :|tools| tools))))))
 
@@ -116,7 +123,7 @@
 	  (lambda (msgs tools &rest options)
 	    (declare (ignorable msgs tools options))
 	    (check-options params options)
-	    (multiple-value-bind (wire fields)
+	    (multiple-value-bind (wire top-level-fields)
 		(format-messages msgs (lambda (msg)
 					(declare (ignorable msg))
 					,format-message))
@@ -124,7 +131,7 @@
 			    params
 			    options
 			    wire
-			    fields
+			    top-level-fields
 			    (mapcar (lambda (tool)
 				      (declare (ignorable tool))
 				      ,format-tool)
@@ -143,27 +150,42 @@
 ;;;; Shared by llama.cpp, vLLM, LM Studio, OpenRouter and OpenAI.
 
 
-(defun openai-format-message (msg)
-  (case (and (consp msg) (keywordp (first msg)) (first msg))
-    (:system (list (j "role" "system" "content" (second msg))))
-    (:user   (list (j "role" "user"   "content" (second msg))))
+(defun openai-format-message (turn)
+  (case (turn-role turn)
+    (:system (list (j "role" "system" "content" (turn-text turn))))
+    (:user   (list (j "role" "user"   "content" (turn-text turn))))
     (:tool-results
      (mapcar (lambda (r)
 	       (j "role"         "tool"
 		  "tool_call_id" (car r)
 		  "content"      (cdr r)))
-	     (second msg)))
-    (t (list msg))))
+	     (turn-results turn)))
+    (:assistant
+     (list (append (j "role" "assistant" "content" (turn-text turn))
+		   (when (turn-calls turn)
+		     (j "tool_calls"
+			(mapcar (lambda (c)
+				  (j "id"   (tool-call-id c)
+				     "type" "function"
+				     "function"
+				     (j "name" (tool-call-name c)
+					"arguments" (lisp-to-json-string
+						     (tool-call-args c)))))
+				(turn-calls turn)))))))))
 
 (defun openai-parse (raw)
   (let ((err (s raw "error")))
     (if err
-	(values (format nil "API error: ~a" (s err "message")) nil :error nil)
+	(make-turn :role :assistant :stop :error
+		   :text (format nil "API error: ~a" (s err "message")))
 	(let* ((choice (first (s raw "choices")))
 	       (msg    (s choice "message"))
 	       (calls  (s msg "tool_calls")))
-	  (values
-	   (s msg "content")
+	  (make-turn
+	   :role :assistant
+	   :text (s msg "content")
+	   :thinking (s msg "reasoning_content")
+	   :calls
 	   (mapcar (lambda (c)
 		     (make-tool-call :id   (s c "id")
 				:name (s c "function" "name")
@@ -172,11 +194,11 @@
 					   (s c "function" "arguments"))
 					(error () :malformed))))
 		   calls)
+	   :stop
 	   (cond ((null choice)                               :error)
 		 ((equal (s choice "finish_reason") "length") :overflow)
 		 (calls                                       :tool-use)
-		 (t                                           :end))
-	   msg)))))
+		 (t                                           :end)))))))
 
 
 ;;;; Anthropic Wire Format
@@ -187,23 +209,34 @@
      "description"  (tool-description tool)
      "input_schema" (tool-schema tool)))
 
-(defun anthropic-format-message (msg)
-  (case (and (consp msg) (keywordp (first msg)) (first msg))
-    (:system (values nil (j "system" (second msg))))
-    (:user   (list (j "role" "user" "content" (second msg))))
+(defun anthropic-format-message (turn)
+  (case (turn-role turn)
+    (:system (values nil (j "system" (turn-text turn))))
+    (:user   (list (j "role" "user" "content" (turn-text turn))))
     (:tool-results
      (list (j "role" "user"
 	      "content" (mapcar (lambda (r)
 				  (j "type"        "tool_result"
 				     "tool_use_id" (car r)
 				     "content"     (cdr r)))
-				(second msg)))))
-    (t (list msg))))
+				(turn-results turn)))))
+    (:assistant
+     (list (j "role" "assistant"
+	      "content"
+	      (append (when (turn-text turn)
+			(list (j "type" "text" "text" (turn-text turn))))
+		      (mapcar (lambda (c)
+				(j "type"  "tool_use"
+				   "id"    (tool-call-id c)
+				   "name"  (tool-call-name c)
+				   "input" (tool-call-args c)))
+			      (turn-calls turn))))))))
 
 (defun anthropic-parse (raw)
   (let ((err (s raw "error")))
     (if err
-	(values (format nil "API error: ~a" (s err "message")) nil :error nil)
+	(make-turn :role :assistant :stop :error
+		   :text (format nil "API error: ~a" (s err "message")))
 	(let* ((blocks (s raw "content"))
 	       (stop   (s raw "stop_reason"))
 	       (uses   (remove-if-not (lambda (b) (equal (s b "type") "tool_use"))
@@ -211,39 +244,25 @@
 	       (texts  (loop for b in blocks
 			     when (equal (s b "type") "text")
 			       collect (s b "text"))))
-	  (values
-	   (when texts (format nil "~{~a~}" texts))
+	  (make-turn
+	   :role :assistant
+	   :text (when texts (format nil "~{~a~}" texts))
+	   :calls
 	   (mapcar (lambda (b)
 		     (make-tool-call :id   (s b "id")
 				     :name (s b "name")
 				     :args (s b "input")))
 		   uses)
+	   :stop
 	   (cond ((null blocks)             :error)
 		 ((equal stop "max_tokens") :overflow)
 		 ((equal stop "refusal")    :refusal)
 		 (uses                      :tool-use)
-		 (t                         :end))
-	   (j "role" "assistant" "content" blocks))))))
+		 (t                         :end)))))))
 
 
 ;;;; OpenAI Responses Wire Format
 
-
-(defparameter *openai-responses-array-fields* '("summary" "content")
-  "Fields the Responses API requires to be arrays. CL-JSON decodes an
-   empty JSON array to NIL and re-encodes NIL as null, so they have to
-   be restored when items are echoed back.")
-
-(defun fix-openai-responses-item (item)
-  (if (alist-p item)
-      (loop for (k . v) in item
-	    collect (cons k (if (and (null v)
-				     (member (symbol-name k)
-					     *openai-responses-array-fields*
-					     :test #'string-equal))
-				#()
-				v)))
-      item))
 
 (defun tool->openai-responses (tool)
   (j "type"        "function"
@@ -251,25 +270,35 @@
      "description" (tool-description tool)
      "parameters"  (tool-schema tool)))
 
-(defun openai-responses-format-message (msg)
-  (case (and (consp msg) (keywordp (first msg)) (first msg))
-    (:system (values nil (j "instructions" (second msg))))
+(defun openai-responses-format-message (turn)
+  (case (turn-role turn)
+    (:system (values nil (j "instructions" (turn-text turn))))
     (:user   (list (j "role" "user"
 		      "content" (list (j "type" "input_text"
-					 "text" (second msg))))))
+					 "text" (turn-text turn))))))
     (:tool-results
      (mapcar (lambda (r)
 	       (j "type"    "function_call_output"
 		  "call_id" (car r)
 		  "output"  (cdr r)))
-	     (second msg)))
-    (:items (mapcar #'fix-openai-responses-item (second msg)))
-    (t (list msg))))
+	     (turn-results turn)))
+    (:assistant
+     (append (when (turn-text turn)
+	       (list (j "type" "message" "role" "assistant"
+			"content" (list (j "type" "output_text"
+					   "text" (turn-text turn))))))
+	     (mapcar (lambda (c)
+		       (j "type"      "function_call"
+			  "call_id"   (tool-call-id c)
+			  "name"      (tool-call-name c)
+			  "arguments" (lisp-to-json-string (tool-call-args c))))
+		     (turn-calls turn))))))
 
 (defun openai-responses-parse (raw)
   (let ((err (s raw "error")))
     (if err
-	(values (format nil "API error: ~a" (s err "message")) nil :error nil)
+	(make-turn :role :assistant :stop :error
+		   :text (format nil "API error: ~a" (s err "message")))
 	(let* ((items (s raw "output"))
 	       (status (s raw "status"))
 	       (reason (s raw "incomplete_details" "reason"))
@@ -281,8 +310,10 @@
 			      append (loop for c in (s i "content")
 					   when (equal (s c "type") "output_text")
 					     collect (s c "text")))))
-	  (values
-	   (when texts (format nil "~{~a~}" texts))
+	  (make-turn
+	   :role :assistant
+	   :text (when texts (format nil "~{~a~}" texts))
+	   :calls
 	   (mapcar (lambda (i)
 		     (make-tool-call
 		      :id   (s i "call_id")
@@ -291,12 +322,12 @@
 				(json:decode-json-from-string (s i "arguments"))
 			      (error () :malformed))))
 		   calls)
+	   :stop
 	   (cond ((null items)                      :error)
 		 ((equal reason "max_output_tokens") :overflow)
 		 ((equal status "incomplete")        :overflow)
 		 (calls                              :tool-use)
-		 (t                                  :end))
-	   (list :items items))))))
+		 (t                                  :end)))))))
 
 
 ;;;; Available Models

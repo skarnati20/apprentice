@@ -41,8 +41,9 @@
 
 (defun seed-messages (system prompt history)
   (if history
-      (append history (list (list :user prompt)))
-      (list (list :system system) (list :user prompt))))
+      (append history (list (make-turn :role :user :text prompt)))
+      (list (make-turn :role :system :text system)
+	    (make-turn :role :user   :text prompt))))
 
 
 ;;;; Standard Agent Loop
@@ -61,15 +62,15 @@
   (let ((opts (model-options options))
 	(msgs (seed-messages system-prompt prompt history)))
     (loop repeat max-turns do
-      (multiple-value-bind (content calls stop msg)
-	  (apply #'run-model model msgs tools opts)
-	(when (eq stop :error)
-	  (return (list content msgs)))
-	(setf msgs (append msgs (list msg)))
-	(if calls
-	    (setf msgs (append msgs (list (list :tool-results
-						(run-calls calls tools)))))
-	    (return (list content msgs))))
+      (let ((turn (apply #'run-model model msgs tools opts)))
+	(when (eq (turn-stop turn) :error)
+	  (return (list (turn-text turn) msgs)))
+	(setf msgs (append msgs (list turn)))
+	(if (turn-calls turn)
+	    (setf msgs (append msgs (list (make-turn
+					    :role :tool-results
+					    :results (run-calls (turn-calls turn) tools)))))
+	    (return (list (turn-text turn) msgs))))
 	  finally (return (list (format nil "[stopped: hit max-turns (~a)]" max-turns)
 				msgs)))))
 
@@ -92,28 +93,28 @@
   (let ((opts (model-options options :thinking))
 	(msgs (seed-messages system prompt history)))
     (loop repeat max-turns do
-      (multiple-value-bind (content calls stop msg)
-	  (apply #'run-model model msgs tools :thinking t opts)
-	(when (eq stop :error)
-	  (return (list content msgs)))
-	(setf msgs (append msgs (list msg)))
+      (let ((turn (apply #'run-model model msgs tools :thinking t opts)))
+	(when (eq (turn-stop turn) :error)
+	  (return (list (turn-text turn) msgs)))
+	(setf msgs (append msgs (list turn)))
 	(cond
 	  ;; Retry with thinking off, keeping the partial trace in
 	  ;; context: the model keeps its work but must now commit.
-	  ((eq stop :overflow)
+	  ((eq (turn-stop turn) :overflow)
 	   (format t "~&⋯ deliberation overflowed, retrying with thinking disabled~%")
-	   (multiple-value-bind (content2 calls2 stop2 msg2)
-	       (apply #'run-model model msgs tools :thinking nil opts)
-	     (when (eq stop2 :error)
-	       (return (list content2 msgs)))
-	     (setf msgs (append msgs (list msg2)))
-	     (if calls2
-		 (setf msgs (append msgs (list (list :tool-results
-						     (run-calls calls2 tools)))))
-		 (return (list content2 msgs)))))
-	  (calls
-	   (setf msgs (append msgs (list (list :tool-results
-					       (run-calls calls tools))))))
-	  (t (return (list content msgs)))))
+	   (let ((retry (apply #'run-model model msgs tools :thinking nil opts)))
+	     (when (eq (turn-stop retry) :error)
+	       (return (list (turn-text retry) msgs)))
+	     (setf msgs (append msgs (list retry)))
+	     (if (turn-calls retry)
+		 (setf msgs (append msgs (list (make-turn
+						 :role :tool-results
+						 :results (run-calls (turn-calls retry) tools)))))
+		 (return (list (turn-text retry) msgs)))))
+	  ((turn-calls turn)
+	   (setf msgs (append msgs (list (make-turn
+					   :role :tool-results
+					   :results (run-calls (turn-calls turn) tools))))))
+	  (t (return (list (turn-text turn) msgs)))))
 	  finally (return (list (format nil "[stopped: hit max-turns (~a)]" max-turns)
 				msgs)))))
