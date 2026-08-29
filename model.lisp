@@ -399,7 +399,7 @@
 (defmodel llama-cpp
   :endpoint "http://localhost:8080/v1/chat/completions"
   :headers (("Content-Type" "application/json"))
-  :params ((model       :default "qwen")
+  :params ((model-id "model"       :default "qwen")
 	   (max-tokens  :default 4096)
 	   (temperature :default 0.2)
 	   (top-p       :default 0.95)
@@ -419,7 +419,7 @@
 	    ("anthropic-version" "2023-06-01")
 	    ("x-api-key"         (uiop:getenv "ANTHROPIC_API_KEY"))
 	    ("anthropic-workspace-id" (uiop:getenv "ANTHROPIC_WORKSPACE_ID")))
-  :params ((model      :default "claude-sonnet-5")
+  :params ((model-id "model"      :default "claude-sonnet-5")
 	   (max-tokens :default 16000)
 	   (stop       "stop_sequences")
 	   (stream     :default nil :as (if value t :false))
@@ -435,7 +435,7 @@
   :headers (("Content-Type"  "application/json")
 	    ("Authorization" (format nil "Bearer ~a" (uiop:getenv "OPENAI_API_KEY"))))
   :messages-key "input"
-  :params ((model      :default "gpt-5.6-terra")
+  :params ((model-id "model"      :default "gpt-5.6-terra")
 	   (max-tokens "max_output_tokens" :default 16000)
 	   (stream     :default nil :as (if value t :false))
 	   (effort     "reasoning" :default "medium" :as (j "effort" value)))
@@ -449,9 +449,28 @@
   :headers (("Content-Type"   "application/json")
 	    ("x-goog-api-key" (uiop:getenv "GEMINI_API_KEY")))
   :messages-key "input"
-  :params ((model  :default "gemini-3.7-flash")
+  :params ((model-id "model"  :default "gemini-3.7-flash")
 	   (store  :default :false)
 	   (stream :default nil :as (if value t :false)))
   :format-message (gemini-format-message msg)
   :format-tool    (tool->gemini tool)
   :parse          (gemini-parse raw))
+
+
+(defmodel openrouter
+  :endpoint "https://openrouter.ai/api/v1/chat/completions"
+  :headers (("Content-Type"  "application/json")
+	    ("Authorization" (format nil "Bearer ~a"
+				     (uiop:getenv "OPENROUTER_API_KEY")))
+	    ;; Optional attributes
+	    ("HTTP-Referer"  (uiop:getenv "OPENROUTER_REFERER"))
+	    ("X-Title"       (uiop:getenv "OPENROUTER_TITLE")))
+  :params ((model-id "model"       :default "anthropic/claude-sonnet-5")
+	   (max-tokens  :default 4096)
+	   (temperature :default 0.2)
+	   (top-p)
+	   (stop)
+	   (stream      :default nil :as (if value t :false)))
+  :format-message (openai-format-message msg)
+  :format-tool    (tool->openai tool)
+  :parse          (openai-parse raw))

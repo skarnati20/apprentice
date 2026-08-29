@@ -9,13 +9,14 @@
 (defvar *chat-history* nil)
 (defvar *allowed-dirs* nil)
 
-(defvar *models-list*
+(defparameter *models-list*
   (list *llama-cpp-model*
 	*claude-sonnet-5-model*
 	*gpt-5.6-terra-model*
-	*gemini-3.7-flash-model*))
+	*gemini-3.7-flash-model*
+	*openrouter-model*))
 
-(defvar *model* *llama-cpp-model*
+(defparameter *model* *llama-cpp-model*
   "Default model for the agent loops.")
 
 
