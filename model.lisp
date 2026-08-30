@@ -340,6 +340,23 @@
      "description" (tool-description tool)
      "parameters"  (tool-schema tool)))
 
+(defparameter *gemini-unsigned-signature* "skip_thought_signature_validator")
+
+(defun gemini-rebuild-assistant (turn)
+  "A foreign assistant turn as Gemini steps. Text replays without a
+   signature; calls need the sentinel."
+  (append (when (turn-text turn)
+	    (list (j "type" "model_output"
+		     "content" (list (j "type" "text"
+					"text" (turn-text turn))))))
+	  (mapcar (lambda (c)
+		    (j "type"      "function_call"
+		       "id"        (tool-call-id c)
+		       "name"      (tool-call-name c)
+		       "arguments" (tool-call-args c)
+		       "signature" *gemini-unsigned-signature*))
+		  (turn-calls turn))))
+
 (defun gemini-format-message (turn)
   (case (turn-role turn)
     (:system (values nil (j "system_instruction" (turn-text turn))))
@@ -353,10 +370,7 @@
 		  "name"    (second r)
 		  "result"  (list (j "type" "text" "text" (third r)))))
 	     (turn-results turn)))
-    ;; Steps go back exactly as received: they carry thought
-    ;; signatures the API validates and no client can mint. A turn
-    ;; from another provider has no RAW and cannot be rebuilt.
-    (:assistant (turn-raw turn))))
+    (:assistant (or (turn-raw turn) (gemini-rebuild-assistant turn)))))
 
 (defun gemini-parse (raw)
   (let ((err (s raw "error")))
