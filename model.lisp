@@ -21,7 +21,8 @@
   thinking
   calls
   results
-  stop)
+  stop
+  raw)
 
 
 ;;;; Model Functions
@@ -342,7 +343,9 @@
 (defun gemini-format-message (turn)
   (case (turn-role turn)
     (:system (values nil (j "system_instruction" (turn-text turn))))
-    (:user   (list (j "type" "user_input" "content" (turn-text turn))))
+    (:user   (list (j "type" "user_input"
+		      "content" (list (j "type" "text"
+					 "text" (turn-text turn))))))
     (:tool-results
      (mapcar (lambda (r)
 	       (j "type"    "function_result"
@@ -350,19 +353,10 @@
 		  "name"    (second r)
 		  "result"  (list (j "type" "text" "text" (third r)))))
 	     (turn-results turn)))
-    (:assistant
-     (append (when (turn-text turn)
-	       (list (j "type" "model_output"
-			"content" (list (j "type" "text"
-					   "text" (turn-text turn))))))
-	     (mapcar (lambda (c)
-		       (j "type"      "function_call"
-			  "id"        (tool-call-id c)
-			  "name"      (tool-call-name c)
-			  ;; Already an object here, unlike every other
-			  ;; provider, which wants a JSON string.
-			  "arguments" (tool-call-args c)))
-		     (turn-calls turn))))))
+    ;; Steps go back exactly as received: they carry thought
+    ;; signatures the API validates and no client can mint. A turn
+    ;; from another provider has no RAW and cannot be rebuilt.
+    (:assistant (turn-raw turn))))
 
 (defun gemini-parse (raw)
   (let ((err (s raw "error")))
@@ -381,6 +375,7 @@
 					      collect (s c "text")))))
 	  (make-turn
 	   :role :assistant
+	   :raw steps
 	   :text (when texts (format nil "~{~a~}" texts))
 	   :calls (mapcar (lambda (st)
 			    (make-tool-call :id   (s st "id")
