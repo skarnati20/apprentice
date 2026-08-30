@@ -13,4 +13,7 @@
 	   #:set-model
 	   ;; Permissions
 	   #:add-allowed-dir
-	   #:clear-allowed-dirs))
+	   #:clear-allowed-dirs
+	   ;; Loops
+	   #:curr-loop
+	   #:set-loop))

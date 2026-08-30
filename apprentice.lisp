@@ -19,6 +19,8 @@
 (defparameter *model* *llama-cpp-model*
   "Default model for the agent loops.")
 
+(defparameter *loop* :standard)
+
 
 ;;;; Harness Functions
 
@@ -30,7 +32,7 @@
     ((:standard :default nil t) 'standard-loop)
     (otherwise nil)))
 
-(defun chat (prompt &optional loop-symbol &rest options)
+(defun chat (prompt &optional (loop-symbol *loop*) &rest options)
   "CHAT runs a conversation using the specified loop.
    
   LOOP-SYMBOL can be one of:
@@ -71,3 +73,9 @@
 
 (defun clear ()
   (setf *chat-history* nil))
+
+(defun curr-loop ()
+  *loop*)
+
+(defun set-loop (loop-value)
+  (setf *loop* loop-value))
