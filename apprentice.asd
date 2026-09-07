@@ -7,6 +7,7 @@
   :depends-on (#:uiop #:cl-json)
   :components ((:file "package")
 	       (:file "helpers")
+	       (:file "anchor")
 	       (:file "tool")
 	       (:file "model")
 	       (:file "loop")

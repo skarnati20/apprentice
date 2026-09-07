@@ -28,6 +28,13 @@
 (defun alist-p (x)
   (and (consp x) (consp (first x)) (atom (car (first x)))))
 
+(defun expand-dir (dir)
+  (let ((path (uiop:ensure-absolute-pathname
+	       (uiop:ensure-directory-pathname dir)
+	       #'uiop:getcwd)))
+    (uiop:native-namestring
+     (or (ignore-errors (uiop:resolve-symlinks path)) path))))
+
 (defun starts-with-p (string prefix)
   "True when STRING begins with PREFIX."
   (let ((end (length prefix)))
