@@ -92,8 +92,13 @@
 	   (list (cons (intern messages-key :keyword) msgs))
 	   (when tools (list (cons :|tools| tools))))))
 
+(defparameter *http-timeout* 600
+  "Seconds before a model request is abandoned. Local models on a long
+   prompt can run for minutes, so this is generous by design.")
+
 (defun http-post (endpoint headers json)
-  (run-argv (append (list "curl" "-s" "--max-time" "120" endpoint)
+  (run-argv (append (list "curl" "-s" "--max-time"
+			  (princ-to-string *http-timeout*) endpoint)
 		    (loop for (name value) in headers
 			  when value
 			    append (list "-H" (format nil "~a: ~a" name value)))
@@ -101,6 +106,15 @@
 	    :input json
 	    :limit most-positive-fixnum))
 
+
+(defun decode-response (body)
+  "BODY as decoded JSON. A transport failure -- a dead endpoint, a
+   timeout, an HTML error page from a proxy -- is not JSON, so it is
+   turned into the error shape every PARSE already understands rather
+   than being left to blow up in the reader."
+  (handler-case (json:decode-json-from-string body)
+    (error ()
+      (j "error" (j "message" (or body "empty response"))))))
 
 ;;;; Model Macro
 
@@ -138,7 +152,7 @@
 				      ,format-tool)
 				    tools)
 			    (or ,messages-key "messages")))
-		     (raw (json:decode-json-from-string
+		     (raw (decode-response
 			   (http-post ,endpoint
 				      (list ,@(mapcar (lambda (h) `(list ,@h)) headers))
 				      json))))
@@ -433,7 +447,7 @@
 	   (stop       "stop_sequences")
 	   (stream     :default nil :as (if value t :false))
 	   (thinking   :as (j "type" (if value "adaptive" "disabled")))
-	   (effort     "output_config" :as (j "effort" value)))
+	   (effort     "output_config" :default "medium" :as (j "effort" value)))
   :format-message (anthropic-format-message msg)
   :format-tool    (tool->anthropic tool)
   :parse          (anthropic-parse raw))
