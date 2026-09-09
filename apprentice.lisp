@@ -20,7 +20,7 @@
   "Default model for the agent loops.")
 
 (defparameter *anchors-list*
-  nil)
+  (list *dense-vector-search-anchor*))
 (defvar *anchors* nil)
 
 (defparameter *loop* :standard)
@@ -63,35 +63,6 @@
 ;;;; Anchor Functions
 
 
-(defvar *apprentice-folder-name*
-  ".apprentice/")
-
-(defun apprentice-folder (dir)
-  (uiop:subpathname (expand-dir dir) *apprentice-folder-name*))
-
-(defun create-apprentice-folder (dir)
-  (let ((path (apprentice-folder dir)))
-    (ensure-directories-exist path)
-    path))
-
-(defun save-anchors (&optional (dir *anchor-dir*))
-  (when (and dir *anchors*)
-    (let ((folder (create-apprentice-folder dir)))
-      (dolist (anchor *anchors*)
-	(funcall (anchor-serialize-fn anchor) folder))
-      folder)))
-
-(defun load-anchor (anchor dir)
-  (setf (anchor-bindings anchor)
-	(funcall (anchor-init-bindings-fn anchor)))
-  (let ((folder (apprentice-folder dir)))
-    (when (uiop:directory-exists-p folder)
-      (handler-case (funcall (anchor-deserialize-fn anchor) folder)
-	(error (e)
-	  (warn "Anchor ~a: could not load state from ~a (~a). Using defaults."
-		(anchor-name anchor) folder e)))))
-  anchor)
-
 (defun set-anchor-dir (dir)
   (let ((new (expand-dir dir)))
     (save-anchors)
@@ -101,15 +72,24 @@
       (load-anchor anchor new))
     new))
 
-(defun set-anchors (anchors)
-  (setf *anchors* anchors)
-  (when *anchor-dir*
-    (dolist (anchor *anchors*)
-      (load-anchor anchor *anchor-dir*)))
-  (mapcar #'anchor-name *anchors*))
+(defun add-anchor (name)
+  (let ((anchor (find-if (lambda (a) (equalp name (anchor-name a)))
+			 *anchors-list*)))
+    (if anchor
+	(progn
+	  (format t "Added anchor `~a`" name)
+	  (unless (member anchor *anchors* :test #'equal)
+	    (push anchor *anchors*)))
+	(format t "No anchor named ~a" name))))
 
 (defun anchors ()
   (mapcar #'anchor-name *anchors*))
+
+(defun available-anchors ()
+  (mapcar #'anchor-name *anchors-list*))
+
+(defun clear-anchors ()
+  (setf *anchors* nil))
 
 
 ;;;; Loop Functions
@@ -143,10 +123,15 @@
     nil or t - use standard-loop (default)"
   (let ((loop-fn (resolve-loop loop-symbol)))
     (if loop-fn
-        (destructuring-bind (content msgs)
-            (apply loop-fn prompt :history *chat-history* options)
-          (setf *chat-history* msgs)
-          (format t "~a" content))
+	(progn
+	  (handler-case
+	      (when *anchor-dir*
+		(process-dir *anchors* *anchor-dir*))
+	    (error () "Unable to process anchors"))
+	  (destructuring-bind (content msgs)
+	      (apply loop-fn prompt :history *chat-history* options)
+	    (setf *chat-history* msgs)
+	    (format t "~a" content)))
 	(error "Unknown loop: ~a" loop-symbol))))
 
 (defun clear ()
