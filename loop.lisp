@@ -119,3 +119,30 @@
 	  (t (return (list (turn-text turn) msgs)))))
 	  finally (return (list (format nil "[stopped: hit max-turns (~a)]" max-turns)
 				msgs)))))
+
+;;;; Apprentice Agent Loop
+;;;;
+;;;; The primary model cannot read or write files. It locates things with
+;;;; search tools and delegates investigation and every change to
+;;;; subagents, relying on their reports.
+
+
+(defparameter *apprentice-prompt*
+  "You are the lead agent on a coding task. You cannot read or modify files yourself: you have no read, write, edit or shell tools. You have grep to find where text and identifiers appear, dense-vector-search to find passages by meaning when you do not know the exact wording, web-search for information outside the codebase, and subagent to delegate work to a subagent that can read, write and edit files and run shell commands.
+
+Locate things with grep and dense-vector-search first, since they are fast. When you need a file's contents, or to understand code those tools cannot show you, delegate an investigation to a subagent. Every change to a file must be delegated to a subagent.
+
+A subagent starts with no memory of this conversation, and nothing carries over between subagent calls. Make every task self-contained: absolute file paths, exactly what to find or change, and any context it needs. Never refer back to a file or function from an earlier call; name it again in full.
+
+When you delegate a change, instruct the subagent to report back a summary of what it changed and evidence of the change: the file path, the line numbers, and the exact code as it now reads, quoted. When you delegate an investigation, ask for specific findings with file paths, line numbers and quoted code.
+
+Give each subagent one focused task, and split larger work into several calls. When the work is done, answer the user with a summary of what changed, citing the evidence the subagents reported.")
+
+(defun apprentice-loop (prompt &rest options
+			&key (system-prompt *apprentice-prompt*)
+			     (tools *apprentice-tools*)
+			&allow-other-keys)
+  (apply #'standard-loop prompt
+	 :system-prompt system-prompt
+	 :tools tools
+	 options))

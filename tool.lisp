@@ -356,5 +356,47 @@
   (list *grep-tool* *read-tool* *little-coder-write-tool* *little-coder-edit-tool*
 	*little-coder-bash-tool* *web-search-tool*))
 
+
+;;;; Sub-Agent Tools
+
+
+(defvar *subagent-model* *llama-cpp-model*
+  "The model the SUBAGENT tool delegates to.")
+
+(defparameter *subagent-tools* *little-coder-tools*
+  "Tools the subagent may use.")
+
+(defparameter *subagent-loop* :little-coder
+  "Which loop the subagent runs.")
+
+(defparameter *subagent-max-turns* 20)
+
+(defparameter *subagent-prompt*
+  "You are a subagent. Another agent, which cannot read or change files itself, has delegated one task to you. Do it with your tools, always using absolute paths. When you are finished, reply with a concise, self-contained report: what you found or changed, with file paths and line numbers, quoting the relevant code when the task asks about it. The other agent sees only this final reply, never your tool calls or their output.")
+
+(deftool subagent
+    "Delegate a task to a subagent that can read, write and edit files and run shell commands. It starts with no memory of this conversation, so give it everything it needs: absolute paths, exactly what to look for or change, and what to report back. Returns the subagent's final report."
+    ((task :string "The complete, self-contained instruction for the subagent"))
+  :checks ((*subagent-model* "No subagent model is configured.")
+	   ((resolve-loop *subagent-loop*)
+	    (format nil "Unknown subagent loop ~s." *subagent-loop*)))
+  :fn (let ((tools (remove "subagent" *subagent-tools*
+			   :key #'tool-name :test #'string=)))
+	(format t "~&⇢ subagent (~a, ~(~a~) loop): ~a~%"
+		(model-name *subagent-model*) *subagent-loop* task)
+	(destructuring-bind (content msgs)
+	    (funcall (resolve-loop *subagent-loop*) task
+		     :model *subagent-model*
+		     :system-prompt *subagent-prompt*
+		     :system *subagent-prompt*
+		     :tools tools
+		     :max-turns *subagent-max-turns*)
+	  (declare (ignore msgs))
+	  (truncate-output (or content "(the subagent returned no report)") 6000))))
+
+
+;;;; Apprentice Tools
+
+
 (defparameter *apprentice-tools*
-  (list *grep-tool* *web-search-tool* *dense-vector-search-tool*))
+  (list *grep-tool* *web-search-tool* *dense-vector-search-tool* *subagent-tool*))
