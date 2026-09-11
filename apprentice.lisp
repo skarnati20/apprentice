@@ -136,3 +136,15 @@
 
 (defun clear ()
   (setf *chat-history* nil))
+
+(defun drop-turns (n)
+  "Drop the first N turns from *CHAT-HISTORY*, excluding the system
+   prompt (the leading turn with role :system), which is always kept."
+  (let ((n (max 0 n)))
+    (if (and *chat-history* (eq (turn-role (first *chat-history*)) :system))
+        (setf *chat-history*
+              (cons (first *chat-history*)
+                    (nthcdr n (rest *chat-history*))))
+        (setf *chat-history* (nthcdr n *chat-history*)))
+    *chat-history*))
+
