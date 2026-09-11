@@ -304,6 +304,48 @@
                     code))))
 
 
+;;;; Anchor Tools
+
+
+(defun offset->line (path offset)
+  "The 1-based line OFFSET falls on in PATH, or NIL if unreadable."
+  (let ((text (read-file-string-safe path)))
+    (when text
+      (1+ (count #\Newline text :end (min offset (length text)))))))
+
+(defun format-chunk-result (result)
+  "One (SCORE . CHUNK) search hit as path:line with its score, then the text."
+  (destructuring-bind (score . chunk) result
+    (let* ((path (chunk-file-path chunk))
+	   (line (offset->line path (chunk-start-offset chunk))))
+      (format nil "~a:~a (similarity ~,2f)~%~a"
+	      path
+	      (or line (format nil "char ~a" (chunk-start-offset chunk)))
+	      score
+	      (chunk-text chunk)))))
+
+(deftool dense-vector-search
+  "Search indexed files by meaning rather than exact text. Returns the most relevant chunks
+   as path with a similarity score. Use it when you do not know the exact name or wording to
+   grep for. Tool only works if an anchor directory is defined."
+    ((query :string "What to look for, described in plain language")
+     &optional
+     (limit :integer "Maximum number of passages to return, default 5"))
+  :checks (((gethash 'entries (anchor-bindings *dense-vector-search-anchor*))
+	    "The dense vector index is empty or not enabled for this directory."))
+  :fn (let* ((entries (gethash 'entries (anchor-bindings *dense-vector-search-anchor*)))
+	     (query-vec (create-embedding query))
+	     (scored (sort (mapcar (lambda (e)
+				     (cons (dot-product query-vec (cdr e))
+					   (car e)))
+				   entries)
+			   #'> :key #'car))
+	     (top (subseq scored 0 (min (or limit 5) (length scored)))))
+	(truncate-output
+	 (format nil "~{~a~^~%~%~}" (mapcar #'format-chunk-result top))
+	 6000)))
+
+
 ;;;; Tool Bundles
 
 
@@ -313,3 +355,6 @@
 (defparameter *little-coder-tools*
   (list *grep-tool* *read-tool* *little-coder-write-tool* *little-coder-edit-tool*
 	*little-coder-bash-tool* *web-search-tool*))
+
+(defparameter *apprentice-tools*
+  (list *grep-tool* *web-search-tool* *dense-vector-search-tool*))
