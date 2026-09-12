@@ -22,6 +22,8 @@
 
 (defparameter *loop* :standard)
 
+(defparameter *options* nil)
+
 
 ;;;; Model Functions
 
@@ -107,6 +109,26 @@
     (otherwise nil)))
 
 
+;;;; Option Functions
+
+
+(defun options ()
+  *options*)
+
+(defun add-option (key val)
+  (setf *options* (remove key *options* :key #'car))
+  (push (cons key val) *options*))
+
+(defun clear-options ()
+  (setf *options* nil))
+
+(defun unwrap-options (options)
+  (if (and options (consp (first options)))
+      (loop for (key . val) in options
+	    append (list key val))
+      options))
+
+
 ;;;; Harness Functions
 
 
@@ -126,7 +148,7 @@
 		(process-dir *anchors* *anchor-dir*))
 	    (error () "Unable to process anchors"))
 	  (destructuring-bind (content msgs)
-	      (apply loop-fn prompt :history *chat-history* options)
+	      (apply loop-fn prompt :history *chat-history* (or options (unwrap-options *options*)))
 	    (setf *chat-history* msgs)
 	    (format t "~a" content)))
 	(error "Unknown loop: ~a" loop-symbol))))
@@ -144,4 +166,3 @@
                     (nthcdr n (rest *chat-history*))))
         (setf *chat-history* (nthcdr n *chat-history*)))
     *chat-history*))
-
