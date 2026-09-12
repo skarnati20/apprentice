@@ -18,6 +18,16 @@
 		 (run-tool tl args)))
 	 (error (e) (format nil "Tool ~a failed: ~a" name e)))))))
 
+(defun tool-output (name args tools)
+  "DISPATCH-TOOL's string, never empty. Finding nothing is a real answer,
+   but providers reject an empty text block, so it has to be said out
+   loud rather than sent as \"\"."
+  (let ((result (dispatch-tool name args tools)))
+    (if (or (null result)
+	    (and (stringp result) (string= result "")))
+	"(no output)"
+	result)))
+
 (defun run-calls (calls tools)
   "List of (ID NAME OUTPUT) per call. One turn's results travel
    together: some providers require them batched into a single message,
@@ -25,7 +35,7 @@
   (loop for call in calls
 	for name   = (tool-call-name call)
 	for args   = (tool-call-args call)
-	for result = (dispatch-tool name args tools)
+	for result = (tool-output name args tools)
 	do (format t "~&→ ~a ~s~%~a~%" name args result)
 	collect (list (tool-call-id call) name result)))
 
@@ -57,7 +67,7 @@
 		      &key (model *model*)
 			   (system-prompt *standard-prompt*)
 			   (tools *standard-tools*)
-			   (max-turns 15)
+			   (max-turns 50)
 			   (history nil)
 		      &allow-other-keys)
   (let ((opts (model-options options))

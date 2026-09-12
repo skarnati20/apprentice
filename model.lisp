@@ -367,9 +367,21 @@
 		    (j "type"      "function_call"
 		       "id"        (tool-call-id c)
 		       "name"      (tool-call-name c)
-		       "arguments" (tool-call-args c)
+		       "arguments" (or (tool-call-args c) (make-hash-table))
 		       "signature" *gemini-unsigned-signature*))
 		  (turn-calls turn))))
+
+(defun gemini-fix-args (step)
+  "CL-JSON decodes {} to NIL and encodes NIL back as null, but Gemini
+   requires function_call arguments to be an object."
+  (if (and (equal (s step "type") "function_call")
+	   (null (s step "arguments")))
+      (mapcar (lambda (pair)
+		(if (eq (car pair) :arguments)
+		    (cons :arguments (make-hash-table))
+		    pair))
+	      step)
+      step))
 
 (defun gemini-format-message (turn)
   (case (turn-role turn)
@@ -384,7 +396,8 @@
 		  "name"    (second r)
 		  "result"  (list (j "type" "text" "text" (third r)))))
 	     (turn-results turn)))
-    (:assistant (or (turn-raw turn) (gemini-rebuild-assistant turn)))))
+    (:assistant (or (mapcar #'gemini-fix-args (turn-raw turn))
+		    (gemini-rebuild-assistant turn)))))
 
 (defun gemini-parse (raw)
   (let ((err (s raw "error")))

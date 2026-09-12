@@ -90,7 +90,10 @@
         (t (format nil "~a~%~%[truncated — showing ~a of ~a characters]"
                    (subseq s 0 limit) limit (length s)))))
 
-(defun run-argv (argv &key directory input (limit 6000) (ok-codes '(0 1)))
+(defun run-argv (argv &key directory input (limit 6000) (ok-codes '(0 1))
+			(empty "(no output)"))
+  "EMPTY is returned when the command succeeds but prints nothing, so a
+   caller never gets back the empty string."
   (handler-case
       (multiple-value-bind (out err code)
 	  (uiop:run-program argv
@@ -100,7 +103,8 @@
                             :input (when input (make-string-input-stream input))
                             :ignore-error-status t)
 	(if (member code ok-codes)
-            (truncate-output out limit)
+            (let ((text (truncate-output out limit)))
+              (if (string= text "") empty text))
             (format nil "Command failed (exit ~a): ~a"
                     code (truncate-output err 500))))
     (error (e)

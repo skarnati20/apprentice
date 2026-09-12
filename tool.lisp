@@ -146,7 +146,8 @@
 		    (format nil "~{~A~^, ~}" *allowed-dirs*))))
   :fn (run-argv (append (list "grep" "-rn")
                         (when glob (list "--include" glob))
-                        (list "-e" pattern path))))
+                        (list "-e" pattern path))
+                :empty "(no matches found)"))
 
 (deftool read
     "Read the contents of a file, with line numbers prefixed."
