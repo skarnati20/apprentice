@@ -156,13 +156,47 @@
 (defun clear ()
   (setf *chat-history* nil))
 
-(defun drop-turns (n)
-  "Drop the first N turns from *CHAT-HISTORY*, excluding the system
-   prompt (the leading turn with role :system), which is always kept."
-  (let ((n (max 0 n)))
-    (if (and *chat-history* (eq (turn-role (first *chat-history*)) :system))
-        (setf *chat-history*
-              (cons (first *chat-history*)
-                    (nthcdr n (rest *chat-history*))))
-        (setf *chat-history* (nthcdr n *chat-history*)))
+(defun drop-turns (&rest specs)
+  "Drop the turns of *CHAT-HISTORY* named by SPECS, where a spec is an
+   index or an inclusive range, (LO . HI) or (LO HI)."
+  (let ((doomed (expand-index-specs specs (length *chat-history*))))
+    (setf *chat-history*
+	  (loop for turn in *chat-history*
+		for i from 0
+		unless (member i doomed) collect turn))
     *chat-history*))
+
+(defun turn-body (turn)
+  "The content worth showing for TURN. A :tool-results turn carries no
+   text at all -- its content is the (ID NAME OUTPUT) triples -- so the
+   tool output is what gets shown for one."
+  (if (eq (turn-role turn) :tool-results)
+      (format nil "~{~a~^ | ~}"
+	      (mapcar (lambda (r) (format nil "~a: ~a" (second r) (third r)))
+		      (turn-results turn)))
+      (or (turn-text turn) "")))
+
+(defparameter *preview-limit* 100
+  "Characters of a turn's content SHOW-TURNS prints before cutting it.")
+
+(defun show-turns (&rest specs)
+  "Print the turns of *CHAT-HISTORY* named by SPECS, or every turn when
+   given none. A spec is an index or an inclusive range, (LO . HI) or
+   (LO HI), and a negative index counts from the end. Content is cut to
+   *PREVIEW-LIMIT* characters. Read-only: nothing is modified."
+  (let* ((n   (length *chat-history*))
+	 (idx (if specs
+		  (expand-index-specs specs n)
+		  (loop for i below n collect i))))
+    (dolist (i idx)
+      (let ((turn (nth i *chat-history*)))
+	(format t "~&~3d  ~14a ~a~a~%"
+		i
+		(turn-role turn)
+		(if (turn-calls turn)
+		    (format nil "[~{~a~^ ~}] "
+			    (mapcar #'tool-call-name (turn-calls turn)))
+		    "")
+		(ellipsize (one-line (turn-body turn)) *preview-limit*))))
+    (format t "~&~a of ~a turn~:p shown.~%" (length idx) n))
+  (values))

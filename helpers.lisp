@@ -52,6 +52,51 @@
                                         old new :test test))
         string)))
 
+(defun one-line (string)
+  "STRING with every run of whitespace collapsed to a single space, so a
+   multi-line value can sit in one row of a listing."
+  (string-right-trim
+   " "
+   (with-output-to-string (out)
+     (let ((in-space t))
+       (loop for ch across string
+	     do (if (member ch '(#\Space #\Tab #\Newline #\Return #\Page))
+		    (unless in-space
+		      (write-char #\Space out)
+		      (setf in-space t))
+		    (progn (write-char ch out)
+			   (setf in-space nil))))))))
+
+(defun ellipsize (string limit)
+  "STRING cut to LIMIT characters, saying how many were left off."
+  (if (<= (length string) limit)
+      string
+      (format nil "~a... (+~a chars)"
+	      (subseq string 0 limit) (- (length string) limit))))
+
+(defun expand-index-specs (specs n)
+  "The indices named by SPECS over a sequence of N items, sorted and
+   without duplicates. A spec is an index, or an inclusive range written
+   (LO . HI) or (LO HI). A negative index counts from the end, so -1 is
+   the last item and (-2 . -1) the last two. Indices outside the sequence
+   are ignored rather than signalling, so a stale index left over from an
+   earlier listing cannot error or wrap around."
+  (let ((out nil))
+    (dolist (spec specs)
+      (multiple-value-bind (lo hi)
+	  (cond ((integerp spec) (values spec spec))
+		((and (consp spec) (integerp (car spec)) (integerp (cdr spec)))
+		 (values (car spec) (cdr spec)))
+		((and (consp spec) (integerp (car spec))
+		      (consp (cdr spec)) (integerp (second spec)))
+		 (values (first spec) (second spec)))
+		(t (error "Not a turn index or range: ~s" spec)))
+	(let ((lo (if (minusp lo) (+ n lo) lo))
+	      (hi (if (minusp hi) (+ n hi) hi)))
+	  (loop for i from (max 0 lo) to (min hi (1- n))
+		do (pushnew i out)))))
+    (sort out #'<)))
+
 (defun lisp-to-corrected-json-string (data)
   (substitute-subseq
    (lisp-to-json-string data)
