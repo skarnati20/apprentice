@@ -402,22 +402,8 @@
 	 6000)))
 
 
-;;;; Tool Bundles
-
-
-(defparameter *standard-tools*
-  (list *grep-tool* *read-tool* *write-tool* *bash-tool* *web-search-tool*))
-
-(defparameter *little-coder-tools*
-  (list *grep-tool* *read-tool* *little-coder-write-tool* *little-coder-edit-tool*
-	*little-coder-bash-tool* *web-search-tool*))
-
-
 ;;;; Sub-Agent Tools
 
-
-(defparameter *subagent-tools* *little-coder-tools*
-  "Tools the subagent may use.")
 
 (defparameter *subagent-loop* :little-coder
   "Which loop the subagent runs.")
@@ -427,29 +413,69 @@
 (defparameter *subagent-prompt*
   "You are a subagent. Another agent, which cannot read or change files itself, has delegated one task to you. Do it with your tools, always using absolute paths. When you are finished, reply with a concise, self-contained report: what you found or changed, with file paths and line numbers, quoting the relevant code when the task asks about it. The other agent sees only this final reply, never your tool calls or their output.")
 
+(defparameter *subagent-report-limit* 6000
+  "Characters of a subagent's report the SUBAGENT tool passes back.")
+
+(defparameter *subagent-brief-limit* 1200
+  "The same, for SUBAGENT-BRIEF. Small on purpose: a loop that delegates
+   constantly keeps every report it gets back in context for the rest of
+   the run.")
+
+(defparameter *subagent-tool-names* '("subagent" "subagent-brief")
+  "Withheld from a subagent, so one cannot delegate further.")
+
+(defun run-subagent (task limit)
+  "TASK run on the subagent model, its report cut to LIMIT characters."
+  (let ((tools (remove-if (lambda (tl)
+			    (member (tool-name tl) *subagent-tool-names*
+				    :test #'string=))
+			  *subagent-tools*)))
+    (format t "~&⇢ subagent (~a, ~(~a~) loop): ~a~%"
+	    (model-name *subagent-model*) *subagent-loop* task)
+    (destructuring-bind (content msgs)
+	(funcall (resolve-loop *subagent-loop*) task
+		 :model *subagent-model*
+		 :system-prompt *subagent-prompt*
+		 :system *subagent-prompt*
+		 :tools tools
+		 :max-turns *subagent-max-turns*)
+      (declare (ignore msgs))
+      (truncate-output (or content "(the subagent returned no report)")
+		       limit))))
+
 (deftool subagent
     "Delegate a task to a subagent that can read, write and edit files and run shell commands. It starts with no memory of this conversation, so give it everything it needs: absolute paths, exactly what to look for or change, and what to report back. Returns the subagent's final report."
     ((task :string "The complete, self-contained instruction for the subagent"))
   :checks ((*subagent-model* "No subagent model is configured.")
 	   ((resolve-loop *subagent-loop*)
 	    (format nil "Unknown subagent loop ~s." *subagent-loop*)))
-  :fn (let ((tools (remove "subagent" *subagent-tools*
-			   :key #'tool-name :test #'string=)))
-	(format t "~&⇢ subagent (~a, ~(~a~) loop): ~a~%"
-		(model-name *subagent-model*) *subagent-loop* task)
-	(destructuring-bind (content msgs)
-	    (funcall (resolve-loop *subagent-loop*) task
-		     :model *subagent-model*
-		     :system-prompt *subagent-prompt*
-		     :system *subagent-prompt*
-		     :tools tools
-		     :max-turns *subagent-max-turns*)
-	  (declare (ignore msgs))
-	  (truncate-output (or content "(the subagent returned no report)") 6000))))
+  :fn (run-subagent task *subagent-report-limit*))
+
+(deftool subagent-brief
+    "Delegate a task to a subagent that can read, write and edit files and run shell commands. It starts with no memory of this conversation, so give it everything it needs: absolute paths, exactly what to look for or change, and what to report back. Its reply is cut short after a small number of characters, so ask it for a brief report -- findings and evidence only, no narration -- or the end of its answer is lost."
+    ((task :string "The complete, self-contained instruction for the subagent"))
+  :checks ((*subagent-model* "No subagent model is configured.")
+	   ((resolve-loop *subagent-loop*)
+	    (format nil "Unknown subagent loop ~s." *subagent-loop*)))
+  :fn (run-subagent task *subagent-brief-limit*))
 
 
-;;;; Apprentice Tools
+;;;; Tool Bundles
 
+(defparameter *standard-tools*
+  (list *grep-tool* *read-tool* *write-tool* *bash-tool* *web-search-tool*
+	*subagent-tool*))
+
+(defparameter *little-coder-tools*
+  (list *grep-tool* *read-tool* *little-coder-write-tool* *little-coder-edit-tool*
+	*little-coder-bash-tool* *web-search-tool*))
+
+(defparameter *subagent-tools*
+  (substitute *bash-tool* *little-coder-bash-tool* *little-coder-tools*)
+  "The little-coder tools, but with unrestricted bash in place of the
+   whitelisted one, so a subagent can run any shell command. Declared in
+   state.lisp, since RUN-SUBAGENT reads it above.")
 
 (defparameter *apprentice-tools*
-  (list *grep-tool* *web-search-tool* *dense-vector-search-tool* *file-tree-tool* *subagent-tool*))
+  (list *grep-tool* *web-search-tool* *dense-vector-search-tool* *file-tree-tool*
+	*subagent-brief-tool*))

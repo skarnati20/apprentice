@@ -16,3 +16,4 @@
 
 (defvar *model*)
 (defvar *subagent-model*)
+(defvar *subagent-tools*)
