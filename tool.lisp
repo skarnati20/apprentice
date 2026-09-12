@@ -116,13 +116,15 @@
           :name ,name-string
           :description ,description
           :schema (j "type" "object"
+                     ;; Empty alists encode as null, but a schema needs {} and [].
                      "properties"
-                     (j ,@(loop for (pname ptype pdesc) in all
+                     (or (j ,@(loop for (pname ptype pdesc) in all
                                append (list (string-downcase (symbol-name pname))
                                            `(j "type" ,(string-downcase (symbol-name ptype))
                                                "description" ,pdesc))))
+                         (make-hash-table))
                      "required"
-                     (list ,@(mapcar (lambda (p) (string-downcase
+                     (vector ,@(mapcar (lambda (p) (string-downcase
                                               (symbol-name (first p))))
                                    required)))
           :fn ,(bind fn)
@@ -324,6 +326,59 @@
 	      score
 	      (chunk-text chunk)))))
 
+(defun path-relative-parts (path root)
+  "PATH split into its component strings, relative to ROOT when PATH
+   falls under it, otherwise as an absolute list of parts."
+  (let* ((rel (or (ignore-errors (uiop:enough-pathname path root)) path))
+	 (namestring (uiop:native-namestring rel)))
+    (remove "" (uiop:split-string namestring :separator "/\\")
+	    :test #'string=)))
+
+(defun add-path-to-tree (tree parts)
+  "TREE is an alist of (name . subtree), subtree NIL for files. Inserts
+   PARTS (a list of path components) into it, returning the new alist."
+  (if (null parts)
+      tree
+      (let* ((name (first parts))
+	     (rest (rest parts))
+	     (entry (assoc name tree :test #'string=)))
+	(if entry
+	    (progn
+	      (setf (cdr entry) (add-path-to-tree (cdr entry) rest))
+	      tree)
+	    (append tree (list (cons name (add-path-to-tree nil rest))))))))
+
+(defun paths-to-tree (paths root)
+  "An alist tree (see ADD-PATH-TO-TREE) built from PATHS, made relative
+   to ROOT when possible."
+  (let ((tree nil))
+    (dolist (path paths tree)
+      (setf tree (add-path-to-tree tree (path-relative-parts path root))))))
+
+(defun format-tree (tree &optional (prefix ""))
+  "TREE (see PATHS-TO-TREE) as a directory-listing string, using the
+   usual box-drawing branches."
+  (with-output-to-string (out)
+    (loop for (entry . rest) on tree
+	  for name = (car entry)
+	  for subtree = (cdr entry)
+	  for last = (null rest)
+	  do (format out "~a~a~a~%" prefix (if last "└── " "├── ") name)
+	     (when subtree
+	       (write-string
+		(format-tree subtree (concatenate 'string prefix (if last "    " "│   ")))
+		out)))))
+
+(deftool file-tree
+  "Show the directory structure of an indexed directory as a tree, without touching disk again. Tool only works if the file-tree anchor is enabled for this directory."
+    ()
+  :checks (((gethash 'paths (anchor-bindings *file-tree-anchor*))
+	    "The file tree index is empty or not enabled for this directory."))
+  :fn (let* ((paths (gethash 'paths (anchor-bindings *file-tree-anchor*)))
+	     (root (or *anchor-dir* ""))
+	     (tree (paths-to-tree paths root)))
+	(truncate-output (format-tree tree) 6000)))
+
 (deftool dense-vector-search
   "Search indexed files by meaning rather than exact text. Returns the most relevant chunks
    as path with a similarity score. Use it when you do not know the exact name or wording to
@@ -359,9 +414,6 @@
 
 ;;;; Sub-Agent Tools
 
-
-(defvar *subagent-model* *llama-cpp-model*
-  "The model the SUBAGENT tool delegates to.")
 
 (defparameter *subagent-tools* *little-coder-tools*
   "Tools the subagent may use.")
@@ -399,4 +451,4 @@
 
 
 (defparameter *apprentice-tools*
-  (list *grep-tool* *web-search-tool* *dense-vector-search-tool* *subagent-tool*))
+  (list *grep-tool* *web-search-tool* *dense-vector-search-tool* *file-tree-tool* *subagent-tool*))

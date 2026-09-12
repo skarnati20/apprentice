@@ -6,10 +6,6 @@
 ;;;; Harness State
 
 
-(defvar *chat-history* nil)
-(defvar *allowed-dirs* nil)
-(defvar *anchor-dir* nil)
-
 (defparameter *models-list*
   (list *llama-cpp-model*
 	*claude-sonnet-5-model*
@@ -18,10 +14,11 @@
 	*openrouter-model*))
 (defparameter *model* *llama-cpp-model*
   "Default model for the agent loops.")
+(defparameter *subagent-model* *llama-cpp-model*
+  "Model the SUBAGENT tool delegates to.")
 
 (defparameter *anchors-list*
-  (list *dense-vector-search-anchor*))
-(defvar *anchors* nil)
+  (list *dense-vector-search-anchor* *file-tree-anchor*))
 
 (defparameter *loop* :standard)
 

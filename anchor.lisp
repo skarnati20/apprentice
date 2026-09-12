@@ -161,3 +161,27 @@
 						:end-offset end)
 				    (to-embedding floats)))))))))
 
+
+(defvar *file-tree-store-name* "file-tree.sexp")
+
+(defanchor file-tree
+  "A simple anchor that tracks every file's path, so a tool can
+   print the directory as a tree without touching disk again."
+  :bindings ((paths nil))
+  :process
+  (lambda (files)
+    (setf paths (mapcar #'file-path files))
+    (list :files (length paths)))
+  :serialize
+  (lambda (folder)
+    (with-open-file (out (merge-pathnames *file-tree-store-name* folder)
+			 :direction :output
+			 :if-exists :supersede
+			 :if-does-not-exist :create)
+      (prin1 (list :version 1 :paths paths) out)))
+  :deserialize
+  (lambda (folder)
+    (let ((path (merge-pathnames *file-tree-store-name* folder)))
+      (when (probe-file path)
+	(let ((data (with-open-file (in path) (read in))))
+	  (setf paths (getf data :paths)))))))

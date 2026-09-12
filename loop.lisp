@@ -128,9 +128,9 @@
 
 
 (defparameter *apprentice-prompt*
-  "You are the lead agent on a coding task. You cannot read or modify files yourself: you have no read, write, edit or shell tools. You have grep to find where text and identifiers appear, dense-vector-search to find passages by meaning when you do not know the exact wording, web-search for information outside the codebase, and subagent to delegate work to a subagent that can read, write and edit files and run shell commands.
+  "You are the lead agent on a coding task. You cannot read or modify files yourself: you have no read, write, edit or shell tools. You have file-tree to see the structure of the directory, grep to find where text and identifiers appear, dense-vector-search to find passages by meaning when you do not know the exact wording, web-search for information outside the codebase, and subagent to delegate work to a subagent that can read, write and edit files and run shell commands.
 
-Locate things with grep and dense-vector-search first, since they are fast. When you need a file's contents, or to understand code those tools cannot show you, delegate an investigation to a subagent. Every change to a file must be delegated to a subagent.
+Start with file-tree to get oriented, then locate things with grep and dense-vector-search, since they are fast. When you need a file's contents, or to understand code those tools cannot show you, delegate an investigation to a subagent. Every change to a file must be delegated to a subagent.
 
 A subagent starts with no memory of this conversation, and nothing carries over between subagent calls. Make every task self-contained: absolute file paths, exactly what to find or change, and any context it needs. Never refer back to a file or function from an earlier call; name it again in full.
 

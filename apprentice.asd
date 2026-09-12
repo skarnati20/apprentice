@@ -6,6 +6,7 @@
   :license "Apache 2"
   :depends-on (#:uiop #:cl-json)
   :components ((:file "package")
+	       (:file "state")
 	       (:file "helpers")
 	       (:file "file")
 	       (:file "chunk")
