@@ -6,23 +6,27 @@
 ;;;; Harness State
 
 
+;;;; What you pick in the REPL is a DEFVAR, so reloading leaves it alone.
+;;;; What is derived from another file is a DEFPARAMETER, so reloading
+;;;; rebuilds it rather than serving structs from before the edit.
+
 (defparameter *models-list*
   (list *llama-cpp-model*
 	*claude-sonnet-5-model*
 	*gpt-5.6-terra-model*
 	*gemini-3.7-flash-model*
 	*openrouter-model*))
-(defparameter *model* *llama-cpp-model*
+(defvar *model* *llama-cpp-model*
   "Default model for the agent loops.")
-(defparameter *subagent-model* *llama-cpp-model*
+(defvar *subagent-model* *llama-cpp-model*
   "Model the SUBAGENT tool delegates to.")
 
 (defparameter *anchors-list*
   (list *dense-vector-search-anchor* *file-tree-anchor*))
 
-(defparameter *loop* :standard)
+(defvar *loop* :standard)
 
-(defparameter *options* nil)
+(defvar *options* nil)
 
 
 ;;;; Model Functions
@@ -176,7 +180,7 @@
 		      (turn-results turn)))
       (or (turn-text turn) "")))
 
-(defparameter *preview-limit* 100
+(defvar *preview-limit* 100
   "Characters of a turn's content SHOW-TURNS prints before cutting it.")
 
 (defun show-turns (&rest specs)
