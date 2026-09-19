@@ -13,6 +13,12 @@
    #:available-models
    #:model
    #:set-model
+   ;; OpenAI device authentication
+   #:make-openai-auth-context
+   #:openai-login
+   #:openai-auth-status
+   #:openai-logout
+   #:configure-openai-device-model
    ;; Anchors
    #:anchors
    #:available-anchors

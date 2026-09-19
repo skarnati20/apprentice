@@ -9,6 +9,7 @@ Most harnesses today aren't that configurable. They determine what agent loops c
 Why Common Lisp? Because Lisp macros allow us to make harness abstractions native to the language. Lisp's REPL-driven development perfectly fits a chat interface. And finally, Lisp's image-based runtime makes it easy to modify the harness and see changes instantly.
 
 Apprentice is based on **four** key harness abstractions:
+
 1. Models - The LLM provider and source of intelligence
 2. Tools - The capabilities provided to the model
 3. Anchors - Any pre-processing happening on a repository or directory
@@ -104,6 +105,101 @@ And now, chat!
 | `(drop-turns '(2 . 4))` | Drops inclusive range of turns from history | Updated chat history |
 | `(clear)` | Clears conversation history | `NIL` |
 
+## ChatGPT/Codex Device Authentication
+
+Apprentice can log in interactively with a ChatGPT account (device flow)
+and then call Codex through `https://chatgpt.com/backend-api/codex/responses`.
+This is opt-in: the existing `OPENAI_API_KEY` providers keep working
+unchanged, and nothing logs in unless you explicitly call `openai-login`.
+
+### Quick start
+
+Point a context at your project and pick a profile (credentials are
+isolated per project, issuer, client ID, and profile):
+
+```lisp
+(defparameter *codex-ctx*
+  (make-openai-auth-context "/path/to/my-project"))
+(openai-auth-status *codex-ctx*)  ; => :MISSING, and nothing is stored yet
+```
+
+Log in explicitly. The verification URL, one-time code, remaining time,
+and an initiated-by-you warning print on your terminal only:
+
+```lisp
+(openai-login *codex-ctx*)  ; => :AUTHENTICATED, after atomic persistence
+```
+
+Check that the browser page is really on the OpenAI account origin before
+entering the code. Then register a Codex model with an explicit model slug
+and select it. There is no default slug: pick a current one from the
+authenticated Codex model catalog or model picker (at research time the
+pinned fallback catalog included names such as `gpt-6-astra`):
+
+```lisp
+(configure-openai-device-model *codex-ctx* "gpt-6-astra")  ; => "openai-codex"
+(set-model "openai-codex")
+(chat "What does the main function in src/main.rs do?")
+```
+
+Restarting Lisp loses nothing: credentials live under
+`<project>/.apprentice/auth/credentials.json`, so status works in a fresh
+image once you rebuild the same context. Logging out deletes exactly this
+context's three tokens and is idempotent:
+
+```lisp
+(openai-auth-status *codex-ctx*)  ; => :PRESENT (or :EXPIRED locally)
+(openai-logout *codex-ctx*)       ; => :LOGGED-OUT
+```
+
+To go back to the API-key provider at any time, just select it again:
+
+```lisp
+(set-model "gpt-5.6-terra")
+```
+
+### Storage, permissions, and trust boundary
+
+- Credentials are a plaintext JSON file fallback protected only by OS
+  permissions: the auth directory is mode `0700`, credential and temporary
+  files are mode `0600` from creation, symlinked or mis-owned stores fail
+  closed, and writes are atomic renames. There is no OS keychain support.
+- The same-user shell and any Lisp code running as you can read these
+  files. Do not treat them as isolated from your own tools or agent loops;
+  this boundary keeps other users out, not yourself.
+- Status values (`:missing`, `:present`, `:expired`) describe local stored
+  state only, never remote validity, and no function returns token values.
+
+### Sessions, expiry, and re-login
+
+There is no automatic refresh or token rotation. When a session expires,
+log in again explicitly. A rejected request (`401`) yields re-login
+guidance without deleting anything; a forbidden one (`403`, e.g. plan or
+entitlement problems) stays a distinct error and also keeps your stored
+credentials.
+
+### Runbook
+
+| Situation | What you see | What to do |
+| --- | --- | --- |
+| Device auth disabled server-side | `device-auth-unavailable` on login | Use an API-key model instead |
+| Login takes longer than ~15 minutes, or you cancel | `device-auth-timed-out` / `openai-auth-cancelled`, nothing persisted | Start `openai-login` again if still wanted |
+| TLS, proxy, or network failure | Safe transport/inference errors, no secrets in messages | Fix network/proxy/`curl`, then retry |
+| Wrong permissions, symlink, corrupt or oversize store | `credential-storage-failure` | Inspect `<project>/.apprentice/auth/`, fix ownership/modes or delete it and re-login |
+| Unknown/newer store schema | `reauthentication-required` | Re-login; old files are never migrated |
+| Expired credentials | `:expired` status; calls refuse before any request | `openai-login` again, or `openai-logout` to clear |
+| Revoked/rejected credentials | Re-login guidance (`401`) or entitlement error (`403`) | Re-login; for `403`, check plan/entitlement instead |
+| Rollback | — | `(set-model "gpt-5.6-terra")`, `(openai-logout ctx)`, optionally delete `<project>/.apprentice/auth/` |
+
+### Compatibility caveat
+
+The Codex wire contract was researched against `openai/codex` commit
+`7498521d288b9b3b96ffba4eedf089d8d6e06a84` (2026-09-18). That production
+API is unversioned and may drift; if Codex calls start failing after an
+upstream change, recheck the endpoint, headers, and event shapes against
+current upstream before assuming a local bug. The OpenAI-owned public
+client ID used for device login does not register Apprentice as an
+application.
 
 ## Extending The Harness
 
@@ -115,16 +211,16 @@ Create a new model with `defmodel`:
 (defmodel openrouter
   :endpoint "https://openrouter.ai/api/v1/chat/completions"
   :headers (("Content-Type"  "application/json")
-	    ("Authorization" (format nil "Bearer ~a"
-				     (uiop:getenv "OPENROUTER_API_KEY")))
-	    ("HTTP-Referer"  (uiop:getenv "OPENROUTER_REFERER"))
-	    ("X-Title"       (uiop:getenv "OPENROUTER_TITLE")))
+     ("Authorization" (format nil "Bearer ~a"
+         (uiop:getenv "OPENROUTER_API_KEY")))
+     ("HTTP-Referer"  (uiop:getenv "OPENROUTER_REFERER"))
+     ("X-Title"       (uiop:getenv "OPENROUTER_TITLE")))
   :params ((model-id "model"       :default "anthropic/claude-sonnet-5")
-	   (max-tokens  :default 4096)
-	   (temperature :default 0.2)
-	   (top-p)
-	   (stop)
-	   (stream      :default nil :as (if value t :false)))
+    (max-tokens  :default 4096)
+    (temperature :default 0.2)
+    (top-p)
+    (stop)
+    (stream      :default nil :as (if value t :false)))
   :format-message (openai-format-message msg)
   :format-tool    (tool->openai tool)
   :parse          (openai-parse raw))
@@ -161,8 +257,8 @@ Create a new tool with `deftool`:
    (offset :integer "1-based line to start from, default 1")
    (limit  :integer "Maximum lines to read, default 2000"))
   :checks (((is-allowed-path *allowed-dirs* path)
-	    (format nil "Not allowed to access this path. Allowed dirs: ~a"
-		    (format nil "~{~A~^, ~}" *allowed-dirs*))))
+     (format nil "Not allowed to access this path. Allowed dirs: ~a"
+      (format nil "~{~A~^, ~}" *allowed-dirs*))))
   :fn (let ((start (or offset 1)) (n (or limit 2000)))
         (with-open-file (in path :external-format :utf-8)
           (loop for i from 1
@@ -207,16 +303,16 @@ Create a new anchor with `defanchor`:
   :serialize
   (lambda (folder)
     (with-open-file (out (merge-pathnames *file-tree-store-name* folder)
-			 :direction :output
-			 :if-exists :supersede
-			 :if-does-not-exist :create)
+    :direction :output
+    :if-exists :supersede
+    :if-does-not-exist :create)
       (prin1 (list :version 1 :paths paths) out)))
   :deserialize
   (lambda (folder)
     (let ((path (merge-pathnames *file-tree-store-name* folder)))
       (when (probe-file path)
-	(let ((data (with-open-file (in path) (read in))))
-	  (setf paths (getf data :paths)))))))
+ (let ((data (with-open-file (in path) (read in))))
+   (setf paths (getf data :paths)))))))
 ```
 
 | Argument | Description |
@@ -244,37 +340,37 @@ Create a new loop by defining a function like so. The only required argument her
 (defparameter *escalate-after* 10)
 
 (defun apprentice-loop (prompt &rest options
-			&key (model *model*)
-			  (system-prompt *apprentice-prompt*)
-			  (tools *apprentice-tools*)
-			  (max-turns 50)
-			  (history nil)
-			  (max-parallel-calls 3)
-			  (escalate-after *escalate-after*)
-			&allow-other-keys)
+   &key (model *model*)
+     (system-prompt *apprentice-prompt*)
+     (tools *apprentice-tools*)
+     (max-turns 50)
+     (history nil)
+     (max-parallel-calls 3)
+     (escalate-after *escalate-after*)
+   &allow-other-keys)
   (let ((*max-parallel-calls* max-parallel-calls)
-	(opts      (model-options options))
-	(msgs      (seed-messages system-prompt prompt history))
-	(escalated nil))
+ (opts      (model-options options))
+ (msgs      (seed-messages system-prompt prompt history))
+ (escalated nil))
     (setf *subagent-calls* 0)
     (loop repeat max-turns do
       (let* ((escalate (>= *subagent-calls* escalate-after))
-	     (kit      (if escalate *standard-tools* tools)))
-	(when (and escalate (not escalated))
-	  (setf escalated t)
-	  (format t "~&⇧ ~a subagent tasks run: the standard tool kit is now available~%"
-		  *subagent-calls*))
-	(let ((turn (apply #'run-model model msgs kit opts)))
-	  (when (eq (turn-stop turn) :error)
-	    (return (list (turn-text turn) msgs)))
-	  (setf msgs (append msgs (list turn)))
-	  (if (turn-calls turn)
-	      (setf msgs (append msgs (list (make-turn
-					     :role :tool-results
-					     :results (run-calls (turn-calls turn) kit)))))
-	      (return (list (turn-text turn) msgs)))))
+      (kit      (if escalate *standard-tools* tools)))
+ (when (and escalate (not escalated))
+   (setf escalated t)
+   (format t "~&⇧ ~a subagent tasks run: the standard tool kit is now available~%"
+    *subagent-calls*))
+ (let ((turn (apply #'run-model model msgs kit opts)))
+   (when (eq (turn-stop turn) :error)
+     (return (list (turn-text turn) msgs)))
+   (setf msgs (append msgs (list turn)))
+   (if (turn-calls turn)
+       (setf msgs (append msgs (list (make-turn
+          :role :tool-results
+          :results (run-calls (turn-calls turn) kit)))))
+       (return (list (turn-text turn) msgs)))))
       finally (return (apply #'force-final-answer
-			     model msgs max-turns opts)))))
+        model msgs max-turns opts)))))
 ```
 
 | Argument | Description |
