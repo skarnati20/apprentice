@@ -95,6 +95,7 @@ And now, chat!
 | `(options)` | Returns currently set options | `((:TEMPERATURE . 0.2))` |
 | `(clear-options)` | Clears all currently set options | `NIL` |
 | `(chat "Summarise this repository" :standard :max-tokens 2000)` | Runs a conversation turn using the specified loop and options | Model response text |
+| `(chat #"prompt with unescaped "quotes" and newlines"#)` | Runs chat with raw string syntax (no manual escaping required) | Model response text |
 | `(show-turns)` | Prints conversation history turns | Formatted turn output |
 | `(show-turns 3)` | Prints turn at specific index | Formatted turn output |
 | `(show-turns -1)` | Prints the most recent turn | Formatted turn output |

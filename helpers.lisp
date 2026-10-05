@@ -314,3 +314,21 @@
                     code (truncate-output err 500))))
     (error (e)
       (format nil "Could not run command: ~a" e))))
+
+
+;;;; Raw String Reader Macro
+
+
+(defun raw-string-reader (stream subchar arg)
+  "Reads a raw string delimited by #\" and \"#, preserving unescaped quotes."
+  (declare (ignore subchar arg))
+  (with-output-to-string (out)
+    (loop for c = (read-char stream t nil t)
+          do (if (eql c #\")
+                 (let ((next (peek-char nil stream nil nil t)))
+                   (if (eql next #\#)
+                       (progn (read-char stream t nil t) (return))
+                       (write-char c out)))
+                 (write-char c out)))))
+
+(set-dispatch-macro-character #\# #\" #'raw-string-reader)
