@@ -18,4 +18,5 @@
 	       (:file "subagent")
 	       (:file "model")
 	       (:file "loop")
+	       (:file "conversations")
 	       (:file "apprentice")))

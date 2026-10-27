@@ -9,6 +9,10 @@
    #:drop-turns
    #:set-preview-limit
    #:show-turns
+   #:save-chat
+   #:load-chat
+   #:list-chats
+   #:delete-chat
    ;; Models
    #:available-models
    #:model

@@ -26,6 +26,13 @@
     (:apprentice   . apprentice-loop)))
 (defvar *loop* :standard)
 
+(defparameter *convo-stores-list*
+  (list *jsonl-convo-store*))
+(defvar *convo-store* *jsonl-convo-store*)
+
+(defvar *conversation* (make-conversation)
+  "Current conversation object containing chat history and metadata.")
+
 (defvar *options* nil)
 
 
@@ -154,12 +161,112 @@
       options))
 
 
+;;;; Convo Store
+
+
+(defun available-convo-stores ()
+  "Returns all available convo stores."
+  (mapcar #'convo-store-name *convo-stores-list*))
+
+(defun set-convo-store (name)
+  "Sets convo store to the one corresponding to NAME."
+  (let ((convo-store (find-if (lambda (cs) (equalp name (convo-store-name cs)))
+			      *convo-stores-list*)))
+    (if convo-store
+	(progn
+	  (format t "Set convo store to `~a`" name)
+	  (setf *convo-store* convo-store))
+	(format t "No convo store named ~a" name))))
+
+
+;;;; Conversation Management
+
+
+(defun ensure-conversation ()
+  "Ensures *CONVERSATION* is bound to a conversation struct."
+  (if (and (boundp '*conversation*) *conversation*)
+      *conversation*
+      (setf *conversation* (make-conversation))))
+
+(defun conversation ()
+  "Returns the current conversation."
+  (ensure-conversation))
+
+(defun format-timestamp (ut)
+  "Formats a universal-time timestamp UT into a readable date string."
+  (cond ((integerp ut)
+	 (multiple-value-bind (sec min hour day month year)
+	     (decode-universal-time ut)
+	   (declare (ignore sec))
+	   (format nil "~4,'0d-~2,'0d-~2,'0d ~2,'0d:~2,'0d"
+		   year month day hour min)))
+	((stringp ut) ut)
+	(t nil)))
+
+(defun save-chat (&optional name &key description id (from-anchor t) path)
+  "Saves the current conversation *CONVERSATION*."
+  (let* ((convo (ensure-conversation))
+	 (actual-name (or name (conversation-name convo)))
+	 (actual-id (or id (conversation-id convo)
+			(and actual-name
+			     (string-downcase (substitute #\- #\Space actual-name))))))
+    (unless actual-name
+      (error "Conversation has no name. Please provide one: (save-chat \"name\")"))
+    (setf (conversation-name convo) actual-name)
+    (setf (conversation-id convo) actual-id)
+    (when description
+      (setf (conversation-description convo) description))
+    (unless (conversation-description convo)
+      (setf (conversation-description convo) ""))
+    (save-conversation *convo-store* convo :from-anchor from-anchor :path path)
+    (format t "Saved conversation `~a` (~a turn~:p)~%"
+	    (conversation-name convo)
+	    (length (conversation-chat-history convo)))
+    convo))
+
+(defun load-chat (id &key (from-anchor t) path)
+  "Loads a conversation into *CONVERSATION*."
+  (let ((convo (load-conversation *convo-store* id :from-anchor from-anchor :path path)))
+    (if convo
+	(progn
+	  (setf *conversation* convo)
+	  (setf *chat-history* (conversation-chat-history convo))
+	  (format t "Loaded conversation `~a` (~a turn~:p)~%"
+		  (conversation-name convo)
+		  (length (conversation-chat-history convo)))
+	  *conversation*)
+	(error "Conversation not found: ~a" id))))
+
+(defun list-chats (&key (from-anchor t) path)
+  "Lists saved conversations."
+  (let ((convos (list-conversations *convo-store* :from-anchor from-anchor :path path)))
+    (if (null convos)
+	(format t "No saved conversations found.~%")
+	(dolist (c convos)
+	  (let* ((cid   (or (conversation-slim-id c) ""))
+		 (name  (or (conversation-slim-name c) ""))
+		 (desc  (conversation-slim-description c))
+		 (saved (conversation-slim-last-saved c))
+		 (time-str (format-timestamp saved)))
+	    (format t "~&~a  ~a~@[ [~a]~]~@[ (~a)~]~%"
+		    cid
+		    name
+		    time-str
+		    (and desc (plusp (length desc)) desc)))))
+    convos))
+
+(defun delete-chat (id &key (from-anchor t) path)
+  "Deletes the conversation with corresponding ID."
+  (delete-conversation *convo-store* id :from-anchor from-anchor :path path))
+
+
 ;;;; Harness Functions
 
 
 (defun chat (prompt &optional (loop-symbol *loop*) &rest options)
   "CHAT runs a conversation using the specified loop."
-  (let ((loop-fn (resolve-loop loop-symbol)))
+  (let ((loop-fn (resolve-loop loop-symbol))
+	(convo (ensure-conversation)))
     (if loop-fn
 	(progn
 	  (when (not *allowed-dirs*)
@@ -169,23 +276,32 @@
 		(process-dir *anchors* *anchor-dir*))
 	    (error () "Unable to process anchors"))
 	  (destructuring-bind (content msgs)
-	      (apply loop-fn prompt :history *chat-history* (or options (unwrap-options *options*)))
+	      (apply loop-fn prompt
+		     :history (conversation-chat-history convo)
+		     (or options (unwrap-options *options*)))
+	    (setf (conversation-chat-history convo) msgs)
 	    (setf *chat-history* msgs)
 	    (format t "~a" content)))
 	(error "Unknown loop: ~a" loop-symbol))))
 
 (defun clear ()
-  (setf *chat-history* nil))
+  "Clears the current conversation."
+  (setf *conversation* (make-conversation))
+  (setf *chat-history* nil)
+  *conversation*)
 
 (defun drop-turns (&rest specs)
-  "Drop the turns of *CHAT-HISTORY* named by SPECS, where a spec is an
+  "Drop the turns of the current conversation named by SPECS, where a spec is an
    index or an inclusive range, (LO . HI) or (LO HI)."
-  (let ((doomed (expand-index-specs specs (length *chat-history*))))
-    (setf *chat-history*
-	  (loop for turn in *chat-history*
+  (let* ((convo (ensure-conversation))
+	 (history (conversation-chat-history convo))
+	 (doomed (expand-index-specs specs (length history))))
+    (setf (conversation-chat-history convo)
+	  (loop for turn in history
 		for i from 0
 		unless (member i doomed) collect turn))
-    *chat-history*))
+    (setf *chat-history* (conversation-chat-history convo))
+    (conversation-chat-history convo)))
 
 (defun turn-body (turn)
   "The content worth showing for TURN. A :tool-results turn carries no
@@ -204,20 +320,22 @@
   (setf *preview-limit* val))
 
 (defun show-turns (&rest specs)
-  "Print the turns of *CHAT-HISTORY* named by SPECS, or every turn when
+  "Print the turns of the current conversation named by SPECS, or every turn when
    given none. A spec is an index or an inclusive range, (LO . HI) or
    (LO HI), and a negative index counts from the end."
-  (let* ((at    (position :limit specs))
+  (let* ((convo (ensure-conversation))
+	 (history (conversation-chat-history convo))
+	 (at    (position :limit specs))
 	 (limit (or (and at (nth (1+ at) specs)) *preview-limit*))
 	 (specs (if at
 		    (append (subseq specs 0 at) (nthcdr (+ at 2) specs))
 		    specs))
-	 (n     (length *chat-history*))
+	 (n     (length history))
 	 (idx   (if specs
 		    (expand-index-specs specs n)
 		    (loop for i below n collect i))))
     (dolist (i idx)
-      (let ((turn (nth i *chat-history*)))
+      (let ((turn (nth i history)))
 	(format t "~&~3d  ~14a ~a~a~%"
 		i
 		(turn-role turn)
