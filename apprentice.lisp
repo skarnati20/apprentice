@@ -36,6 +36,125 @@
 (defvar *options* nil)
 
 
+;;;; Presets
+
+
+(defparameter *apprentice-dir* ".apprentice/")
+(defparameter *preset-filename* "preset.sexp")
+
+(defun resolve-preset-dir-path (level)
+  "Find the preset directory path for the given LEVEL (:anchor or :global)."
+  (case level
+    (:global (uiop:subpathname
+	      (user-homedir-pathname)
+	      *apprentice-dir*))
+    (:anchor (if *anchor-dir*
+		 (uiop:subpathname
+		  (uiop:ensure-directory-pathname *anchor-dir*)
+		  *apprentice-dir*)
+		 nil))))
+
+(defun resolve-preset-path (level)
+  "Find the preset file path for the given LEVEL (:anchor or :global)."
+  (let ((preset-dir-path (resolve-preset-dir-path level)))
+    (when preset-dir-path
+      (uiop:subpathname (uiop:ensure-directory-pathname preset-dir-path)
+			*preset-filename*))))
+
+(defun current-preset-data ()
+  "Captures current harness state as a preset plist."
+  (list :model          (model)
+        :loop           (current-loop)
+        :subagent-model (model-name *subagent-model*)
+        :subagent-loop  *subagent-loop*
+        :allowed-dirs   (mapcar #'namestring *allowed-dirs*)
+        :anchors        (anchors)
+        :options        *options*
+        :preview-limit  *preview-limit*))
+
+(defun edit-preset (key val &optional (level :anchor))
+  "Updates KEY to VAL in the preset file at LEVEL (:anchor or :global)."
+  (if (and (eq level :anchor) (null *anchor-dir*))
+      (progn
+        (format t "~&No anchor dir set.~%")
+        nil)
+      (let* ((dest (resolve-preset-path level))
+             (data (when (and dest (uiop:file-exists-p dest))
+                     (with-open-file (in dest :direction :input)
+                       (read in nil nil))))
+             (updated (copy-list data)))
+        (setf (getf updated key) val)
+        (when dest
+          (ensure-directories-exist dest)
+          (with-open-file (out dest :direction :output
+                                    :if-exists :supersede
+                                    :if-does-not-exist :create)
+            (prin1 updated out)))
+        updated)))
+
+(defun save-preset (&optional (level :anchor))
+  "Saves current harness configuration to LEVEL (:anchor or :global)."
+  (if (and (eq level :anchor) (null *anchor-dir*))
+      (format t "~&No anchor dir set.~%")
+      (let ((data (current-preset-data)))
+        (loop for (key val) on data by #'cddr do
+          (edit-preset key val level))
+        (format t "~&Saved ~a preset to ~a~%" level (resolve-preset-path level))
+        data)))
+
+(defun load-preset (&optional (level :anchor) &key silent)
+  "Loads harness presets from file at LEVEL (:anchor or :global)."
+  (case level
+    (:anchor
+     (if (null *anchor-dir*)
+         (unless silent (format t "~&No anchor dir set.~%"))
+         (let ((anchor-path (resolve-preset-path :anchor)))
+           (if (and anchor-path (uiop:file-exists-p anchor-path))
+               (progn
+                 (unless silent (format t "~&Reading preset from ~a...~%" anchor-path))
+                 (with-open-file (in anchor-path :direction :input)
+                   (apply-preset-data (read in nil nil))))
+               (unless silent (format t "~&No preset found for :anchor.~%"))))))
+    (:global
+     (let ((global-path (resolve-preset-path :global)))
+       (if (and global-path (uiop:file-exists-p global-path))
+           (progn
+             (unless silent (format t "~&Reading preset from ~a...~%" global-path))
+             (with-open-file (in global-path :direction :input)
+               (apply-preset-data (read in nil nil))))
+           (unless silent (format t "~&No preset found for :global.~%")))))
+    (t
+     (unless silent (format t "~&Unknown level ~s. Use :anchor or :global.~%" level))))
+  nil)
+
+(defun list-preset (&optional (level :anchor))
+  "Displays information on preset at LEVEL (:anchor or :global)."
+  (case level
+    (:anchor
+     (format t "~&=== Anchor Preset ===~%")
+     (if (null *anchor-dir*)
+         (format t "  No anchor dir set.~%")
+         (let ((path (resolve-preset-path :anchor)))
+           (if (and path (uiop:file-exists-p path))
+               (with-open-file (in path)
+                 (let ((p (read in nil nil)))
+                   (format t "  Path:  ~a~%  Model: ~a | Loop: ~s~%"
+                           path (getf p :model) (getf p :loop))))
+               (format t "  (none detected)~%")))))
+    (:global
+     (format t "~&=== Global Preset ===~%")
+     (let ((path (resolve-preset-path :global)))
+       (if (and path (uiop:file-exists-p path))
+           (with-open-file (in path)
+             (let ((p (read in nil nil)))
+               (format t "  Path:  ~a~%  Model: ~a | Loop: ~s~%"
+                       path (getf p :model) (getf p :loop))))
+           (format t "  (none detected)~%"))))
+    (t
+     (format t "Unknown level: ~s. Use :anchor or :global.~%" level)))
+  (values))
+
+
 ;;;; Model Functions
 
 
@@ -57,6 +176,20 @@
 	(progn
 	  (format t "Set model to `~a`" name)
 	  (setf *model* model))
+	(format t "No model named ~a" name))))
+
+(defun subagent-model ()
+  "Returns current subagent model."
+  (model-name *subagent-model*))
+
+(defun set-subagent-model (name)
+  "Sets subagent model to the one corresponding to NAME."
+  (let ((model (find-if (lambda (m) (equalp name (model-name m)))
+			*models-list*)))
+    (if model
+	(progn
+	  (format t "Set subagent model to `~a`" name)
+	  (setf *subagent-model* model))
 	(format t "No model named ~a" name))))
 
 
@@ -91,13 +224,14 @@
   (mapcar #'anchor-name *anchors*))
 
 (defun set-anchor-dir (dir)
-  "Sets the current anchor directory to DIR."
+  "Sets the current anchor directory to DIR and loads its preset if present."
   (let ((new (expand-dir dir)))
     (save-anchors)
     (setf *anchor-dir* new)
     (add-allowed-dir new)
     (dolist (anchor *anchors*)
       (load-anchor anchor new))
+    (load-preset :anchor)
     new))
 
 (defun add-anchor (name)
@@ -346,3 +480,8 @@
 		(ellipsize (one-line (turn-body turn)) limit))))
     (format t "~&~a of ~a turn~:p shown.~%" (length idx) n))
   (values))
+
+
+;; Automatically restore global preset if present on package load
+(eval-when (:load-toplevel :execute)
+  (ignore-errors (load-preset :global :silent t)))

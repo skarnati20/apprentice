@@ -79,6 +79,8 @@ And now, chat!
 | `(available-models)` | Returns all available models | `("llama-cpp" "claude-sonnet-5-5" "gpt-6.2-astra" ...)` |
 | `(set-model "claude-sonnet-5-5")` | Sets the active model | `"claude-sonnet-5-5"` |
 | `(model)` | Returns the active model name | `"claude-sonnet-5-5"` |
+| `(subagent-model)` | Returns the active subagent model name | `"llama-cpp"` |
+| `(set-subagent-model "llama-cpp")` | Sets the subagent model | `"llama-cpp"` |
 | `(add-allowed-dir "~/projects/my-app")` | Adds a directory to the allowed directories list | `("/Users/you/projects/my-app/")` |
 | `(allowed-dirs)` | Returns all allowed directories | `("/Users/you/projects/my-app/")` |
 | `(clear-allowed-dirs)` | Clears all allowed directories | `NIL` |
@@ -91,6 +93,13 @@ And now, chat!
 | `(anchors)` | Returns currently enabled anchors | `("dense-vector-search" "file-tree")` |
 | `(clear-anchors)` | Clears all enabled anchors | `NIL` |
 | `(save-anchors)` | Saves currently loaded anchor state to disk | `"/Users/you/projects/my-app/.apprentice"` |
+| `(edit-preset :model "claude-sonnet-5-5")` | Updates a single key in the preset file (`:anchor` or `:global`) | Updated plist |
+| `(save-preset)` | Saves current settings to local anchor preset `.apprentice/preset.sexp` | Saved plist |
+| `(save-preset :global)` | Saves current settings to global preset `~/.apprentice/preset.sexp` | Saved plist |
+| `(load-preset)` | Loads preset from anchor directory | Restored plist |
+| `(load-preset :global)` | Loads preset from global `~/.apprentice/preset.sexp` | Restored plist |
+| `(list-preset)` | Displays detected preset for `:anchor` | Formatted output |
+| `(list-preset :global)` | Displays detected preset for `:global` | Formatted output |
 | `(add-option :temperature 0.2)` | Adds or sets an option for the coding loop | `((:TEMPERATURE . 0.2))` |
 | `(options)` | Returns currently set options | `((:TEMPERATURE . 0.2))` |
 | `(clear-options)` | Clears all currently set options | `NIL` |

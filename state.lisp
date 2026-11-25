@@ -9,6 +9,11 @@
 (defvar *anchors* nil)
 
 (defvar *model*)
+(defvar *models-list* nil)
+(defvar *loop* :standard)
+(defvar *options* nil)
+(defvar *preview-limit* 100)
+
 (defvar *subagent-model*)
 (defvar *subagent-tools*)
 

@@ -13,10 +13,18 @@
    #:load-chat
    #:list-chats
    #:delete-chat
+   ;; Presets
+   #:save-preset
+   #:load-preset
+   #:edit-preset
+   #:list-preset
+   #:apply-preset-data
    ;; Models
    #:available-models
    #:model
    #:set-model
+   #:subagent-model
+   #:set-subagent-model
    ;; Anchors
    #:anchors
    #:available-anchors

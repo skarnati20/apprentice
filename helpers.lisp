@@ -332,3 +332,45 @@
                  (write-char c out)))))
 
 (set-dispatch-macro-character #\# #\" #'raw-string-reader)
+
+
+;;;; Presets
+
+
+(declaim (ftype function set-model set-subagent-model set-loop
+                         add-anchor clear-anchors add-allowed-dir clear-allowed-dirs
+                         set-preview-limit model current-loop))
+
+(defun apply-preset-data (data)
+  "Applies DATA plist to the apprentice harness state."
+  (loop for (key val) on data by #'cddr do
+    (case key
+      (:model
+       (set-model val))
+
+      (:loop
+       (set-loop val))
+
+      (:allowed-dirs
+       (clear-allowed-dirs)
+       (dolist (d val)
+         (add-allowed-dir d)))
+
+      (:anchors
+       (clear-anchors)
+       (dolist (a val)
+         (add-anchor a)))
+
+      (:options
+       (setf *options* val))
+
+      (:subagent-model
+       (set-subagent-model val))
+
+      (:subagent-loop
+       (setf *subagent-loop* val))
+
+      (:preview-limit
+       (set-preview-limit val))))
+  (format t "~&Loaded preset (Model: ~a | Loop: ~s)~%" (model) (current-loop))
+  data)
