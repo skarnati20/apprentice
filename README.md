@@ -32,8 +32,8 @@ git clone https://github.com/skarnati20/apprentice.git ~/quicklisp/local-project
 Look at the available models and choose one:
 
 ```lisp
-(available-models)             ; => ("llama-cpp" "claude-sonnet-5" "gpt-5.6-terra" ...)
-(set-model "claude-sonnet-5")
+(available-models)             ; => ("llama-cpp" "claude-sonnet-5-5" "gpt-6.2-astra" ...)
+(set-model "claude-sonnet-5-5")
 ```
 
 Make sure you have the proper environment variables set:
@@ -76,9 +76,9 @@ And now, chat!
 
 | Command | Description | Output |
 | --- | --- | --- |
-| `(available-models)` | Returns all available models | `("llama-cpp" "claude-sonnet-5" "gpt-5.6-terra" ...)` |
-| `(set-model "claude-sonnet-5")` | Sets the active model | `"claude-sonnet-5"` |
-| `(model)` | Returns the active model name | `"claude-sonnet-5"` |
+| `(available-models)` | Returns all available models | `("llama-cpp" "claude-sonnet-5-5" "gpt-6.2-astra" ...)` |
+| `(set-model "claude-sonnet-5-5")` | Sets the active model | `"claude-sonnet-5-5"` |
+| `(model)` | Returns the active model name | `"claude-sonnet-5-5"` |
 | `(add-allowed-dir "~/projects/my-app")` | Adds a directory to the allowed directories list | `("/Users/you/projects/my-app/")` |
 | `(allowed-dirs)` | Returns all allowed directories | `("/Users/you/projects/my-app/")` |
 | `(clear-allowed-dirs)` | Clears all allowed directories | `NIL` |
@@ -120,7 +120,7 @@ Create a new model with `defmodel`:
 				     (uiop:getenv "OPENROUTER_API_KEY")))
 	    ("HTTP-Referer"  (uiop:getenv "OPENROUTER_REFERER"))
 	    ("X-Title"       (uiop:getenv "OPENROUTER_TITLE")))
-  :params ((model-id "model"       :default "anthropic/claude-sonnet-5")
+  :params ((model-id "model"       :default "anthropic/claude-sonnet-5.5")
 	   (max-tokens  :default 4096)
 	   (temperature :default 0.2)
 	   (top-p)

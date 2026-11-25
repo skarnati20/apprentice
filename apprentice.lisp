@@ -8,11 +8,11 @@
 
 (defparameter *models-list*
   (list *llama-cpp-model*
-	*claude-sonnet-5-model*
-	*gpt-5.6-terra-model*
-	*gemini-3.7-flash-model*
+	*claude-sonnet-5-5-model*
+	*gpt-6.2-astra-model*
+	*gemini-3.8-flash-model*
 	*openrouter-model*))
-(defvar *model* *llama-cpp-model*
+(defvar *model* *gemini-3.8-flash-model*
   "Default model for the agent loops.")
 (defvar *subagent-model* *llama-cpp-model*
   "Model the SUBAGENT tool delegates to.")

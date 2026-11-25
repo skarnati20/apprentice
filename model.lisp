@@ -481,6 +481,9 @@
 
 
 (defmodel llama-cpp
+  ;; Use the following command to run a llama.cpp command, for example:
+  ;;
+  ;; llama-server -m <model-path>
   :endpoint "http://localhost:8080/v1/chat/completions"
   :headers (("Content-Type" "application/json"))
   :params ((model-id "model"       :default "qwen")
@@ -497,13 +500,13 @@
   :parse          (openai-parse raw))
 
 
-(defmodel claude-sonnet-5
+(defmodel claude-sonnet-5-5
   :endpoint "https://api.anthropic.com/v1/messages"
   :headers (("Content-Type"      "application/json")
 	    ("anthropic-version" "2023-06-01")
 	    ("x-api-key"         (uiop:getenv "ANTHROPIC_API_KEY"))
 	    ("anthropic-workspace-id" (uiop:getenv "ANTHROPIC_WORKSPACE_ID")))
-  :params ((model-id "model"      :default "claude-sonnet-5")
+  :params ((model-id "model"      :default "claude-sonnet-5-5")
 	   (max-tokens :default 16000)
 	   (stop       "stop_sequences")
 	   (stream     :default nil :as (if value t :false))
@@ -514,12 +517,12 @@
   :parse          (anthropic-parse raw))
 
 
-(defmodel gpt-5.6-terra
+(defmodel gpt-6.2-astra
   :endpoint "https://api.openai.com/v1/responses"
   :headers (("Content-Type"  "application/json")
 	    ("Authorization" (format nil "Bearer ~a" (uiop:getenv "OPENAI_API_KEY"))))
   :messages-key "input"
-  :params ((model-id "model"      :default "gpt-5.6-terra")
+  :params ((model-id "model"      :default "gpt-6.2-astra")
 	   (max-tokens "max_output_tokens" :default 16000)
 	   (stream     :default nil :as (if value t :false))
 	   (effort     "reasoning" :default "medium" :as (j "effort" value)))
@@ -528,12 +531,12 @@
   :parse          (openai-responses-parse raw))
 
 
-(defmodel gemini-3.7-flash
+(defmodel gemini-3.8-flash
   :endpoint "https://generativelanguage.googleapis.com/v1/interactions"
   :headers (("Content-Type"   "application/json")
 	    ("x-goog-api-key" (uiop:getenv "GEMINI_API_KEY")))
   :messages-key "input"
-  :params ((model-id "model"  :default "gemini-3.7-flash")
+  :params ((model-id "model"  :default "gemini-3.8-flash")
 	   (store  :default :false)
 	   (stream :default nil :as (if value t :false)))
   :format-message (gemini-format-message msg)
@@ -549,7 +552,7 @@
 	    ;; Optional attributes
 	    ("HTTP-Referer"  (uiop:getenv "OPENROUTER_REFERER"))
 	    ("X-Title"       (uiop:getenv "OPENROUTER_TITLE")))
-  :params ((model-id "model"       :default "anthropic/claude-sonnet-5")
+  :params ((model-id "model"       :default "anthropic/claude-sonnet-5.5")
 	   (max-tokens  :default 4096)
 	   (temperature :default 0.2)
 	   (top-p)
