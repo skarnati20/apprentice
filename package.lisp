@@ -18,7 +18,11 @@
    #:load-preset
    #:edit-preset
    #:list-preset
-   #:apply-preset-data
+   ;; Environment Variables
+   #:set-env
+   #:edit-env
+   #:load-env
+   #:list-env
    ;; Models
    #:available-models
    #:model

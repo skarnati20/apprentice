@@ -374,3 +374,17 @@
        (set-preview-limit val))))
   (format t "~&Loaded preset (Model: ~a | Loop: ~s)~%" (model) (current-loop))
   data)
+
+
+;;;; Environment Variables
+
+
+(defun apply-env-data (data)
+  "Sets environment variables in process from DATA alist."
+  (dolist (pair data)
+    (when (consp pair)
+      (let ((name (string (car pair)))
+            (val  (string (cdr pair))))
+        (setf (uiop:getenv name) val))))
+  (format t "~&Loaded ~a environment variable~:p.~%" (length data))
+  data)

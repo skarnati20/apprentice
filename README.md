@@ -100,6 +100,12 @@ And now, chat!
 | `(load-preset :global)` | Loads preset from global `~/.apprentice/preset.sexp` | Restored plist |
 | `(list-preset)` | Displays detected preset for `:anchor` | Formatted output |
 | `(list-preset :global)` | Displays detected preset for `:global` | Formatted output |
+| `(set-env "ANTHROPIC_API_KEY" "sk-ant-..." :global)` | Sets and persists env variable to `~/.apprentice/env.sexp` | Updated alist |
+| `(set-env "DATABASE_URL" "postgres://..." :anchor)` | Sets and persists env variable to `<anchor-dir>/.apprentice/env.sexp` | Updated alist |
+| `(load-env)` | Loads environment variables from anchor directory | Restored alist |
+| `(load-env :global)` | Loads environment variables from global `~/.apprentice/env.sexp` | Restored alist |
+| `(list-env)` | Displays saved env variables for `:anchor` (masked) | Formatted output |
+| `(list-env :global)` | Displays saved env variables for `:global` (masked) | Formatted output |
 | `(add-option :temperature 0.2)` | Adds or sets an option for the coding loop | `((:TEMPERATURE . 0.2))` |
 | `(options)` | Returns currently set options | `((:TEMPERATURE . 0.2))` |
 | `(clear-options)` | Clears all currently set options | `NIL` |

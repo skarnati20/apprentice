@@ -155,6 +155,150 @@
   (values))
 
 
+;;;; Environment Variables
+
+
+(defparameter *env-filename* "env.sexp")
+
+(defun resolve-env-dir-path (level)
+  "Find the env directory path for the given LEVEL (:anchor or :global)."
+  (case level
+    (:global (uiop:subpathname
+	      (user-homedir-pathname)
+	      *apprentice-dir*))
+    (:anchor (if *anchor-dir*
+		 (uiop:subpathname
+		  (uiop:ensure-directory-pathname *anchor-dir*)
+		  *apprentice-dir*)
+		 nil))))
+
+(defun resolve-env-path (level)
+  "Find the env file path for the given LEVEL (:anchor or :global)."
+  (let ((env-dir-path (resolve-env-dir-path level)))
+    (when env-dir-path
+      (uiop:subpathname (uiop:ensure-directory-pathname env-dir-path)
+			*env-filename*))))
+
+(defun edit-env (key val &optional (level :anchor))
+  "Updates or removes KEY in the env file at LEVEL (:anchor or :global).
+   If VAL is NIL, removes KEY."
+  (if (and (eq level :anchor) (null *anchor-dir*))
+      (progn
+        (format t "~&No anchor dir set.~%")
+        nil)
+      (let* ((dest (resolve-env-path level))
+             (data (when (and dest (uiop:file-exists-p dest))
+                     (with-open-file (in dest :direction :input)
+                       (read in nil nil))))
+             (key-str (string key))
+             (existing (assoc key-str data :test #'string=))
+             (updated (cond
+                        ((null val)
+                         (remove key-str data :key #'car :test #'string=))
+                        (existing
+                         (mapcar (lambda (pair)
+                                   (if (string= (car pair) key-str)
+                                       (cons key-str (string val))
+                                       pair))
+                                 data))
+                        (t
+                         (append data (list (cons key-str (string val))))))))
+        (when dest
+          (ensure-directories-exist dest)
+          (with-open-file (out dest :direction :output
+                                    :if-exists :supersede
+                                    :if-does-not-exist :create)
+            (prin1 updated out)))
+        updated)))
+
+(defun set-env (key val &optional (level :anchor))
+  "Sets environment variable KEY to VAL in the process and persists it to LEVEL (:anchor or :global)."
+  (let ((result (edit-env key val level)))
+    (when result
+      (if val
+          (progn
+            (setf (uiop:getenv (string key)) (string val))
+            (format t "~&Set ~a env variable `~a` to ~a~%" level key (resolve-env-path level)))
+          (progn
+            (setf (uiop:getenv (string key)) nil)
+            (format t "~&Removed ~a env variable `~a` from ~a~%" level key (resolve-env-path level)))))
+    result))
+
+(defun load-env (&optional (level :anchor) &key silent)
+  "Loads environment variables from file at LEVEL (:anchor or :global)."
+  (case level
+    (:anchor
+     (if (null *anchor-dir*)
+         (unless silent (format t "~&No anchor dir set.~%"))
+         (let ((anchor-path (resolve-env-path :anchor)))
+           (if (and anchor-path (uiop:file-exists-p anchor-path))
+               (progn
+                 (unless silent (format t "~&Reading env from ~a...~%" anchor-path))
+                 (with-open-file (in anchor-path :direction :input)
+                   (apply-env-data (read in nil nil))))
+               (unless silent (format t "~&No env file found for :anchor.~%"))))))
+    (:global
+     (let ((global-path (resolve-env-path :global)))
+       (if (and global-path (uiop:file-exists-p global-path))
+           (progn
+             (unless silent (format t "~&Reading env from ~a...~%" global-path))
+             (with-open-file (in global-path :direction :input)
+               (apply-env-data (read in nil nil))))
+           (unless silent (format t "~&No env file found for :global.~%")))))
+    (t
+     (unless silent (format t "~&Unknown level ~s. Use :anchor or :global.~%" level))))
+  nil)
+
+(defun mask-env-value (name val)
+  "Masks sensitive values (keys, tokens, secrets)."
+  (let ((upper (string-upcase name)))
+    (if (or (search "KEY" upper)
+            (search "SECRET" upper)
+            (search "TOKEN" upper)
+            (search "PASSWORD" upper)
+            (search "AUTH" upper))
+        (let ((len (length val)))
+          (if (> len 8)
+              (format nil "~a...~a" (subseq val 0 4) (subseq val (- len 4)))
+              "********"))
+        val)))
+
+(defun list-env (&optional (level :anchor))
+  "Displays environment variables saved at LEVEL (:anchor or :global)."
+  (case level
+    (:anchor
+     (format t "~&=== Anchor Environment Variables ===~%")
+     (if (null *anchor-dir*)
+         (format t "  No anchor dir set.~%")
+         (let ((path (resolve-env-path :anchor)))
+           (if (and path (uiop:file-exists-p path))
+               (with-open-file (in path)
+                 (let ((data (read in nil nil)))
+                   (if data
+                       (dolist (pair data)
+                         (format t "  ~24a = ~s~%"
+                                 (car pair)
+                                 (mask-env-value (car pair) (cdr pair))))
+                       (format t "  (empty)~%"))))
+               (format t "  (none detected)~%")))))
+    (:global
+     (format t "~&=== Global Environment Variables ===~%")
+     (let ((path (resolve-env-path :global)))
+       (if (and path (uiop:file-exists-p path))
+           (with-open-file (in path)
+             (let ((data (read in nil nil)))
+               (if data
+                   (dolist (pair data)
+                     (format t "  ~24a = ~s~%"
+                             (car pair)
+                             (mask-env-value (car pair) (cdr pair))))
+                   (format t "  (empty)~%"))))
+           (format t "  (none detected)~%"))))
+    (t
+     (format t "Unknown level: ~s. Use :anchor or :global.~%" level)))
+  (values))
+
+
 ;;;; Model Functions
 
 
@@ -224,7 +368,7 @@
   (mapcar #'anchor-name *anchors*))
 
 (defun set-anchor-dir (dir)
-  "Sets the current anchor directory to DIR and loads its preset if present."
+  "Sets the current anchor directory to DIR and loads its preset and env if present."
   (let ((new (expand-dir dir)))
     (save-anchors)
     (setf *anchor-dir* new)
@@ -232,6 +376,7 @@
     (dolist (anchor *anchors*)
       (load-anchor anchor new))
     (load-preset :anchor)
+    (load-env :anchor)
     new))
 
 (defun add-anchor (name)
@@ -482,6 +627,7 @@
   (values))
 
 
-;; Automatically restore global preset if present on package load
+;; Automatically restore global preset and env if present on package load
 (eval-when (:load-toplevel :execute)
-  (ignore-errors (load-preset :global :silent t)))
+  (ignore-errors (load-preset :global :silent t))
+  (ignore-errors (load-env :global :silent t)))
