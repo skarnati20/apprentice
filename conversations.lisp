@@ -38,7 +38,7 @@
 (defun get-anchor-convo-dir ()
   "The place to save conversations in an anchor directory."
   (if *anchor-dir*
-      (expand-dir (uiop:subpathname (uiop:ensure-directory-pathname *anchor-dir*) "conversations/"))
+      (expand-dir (uiop:subpathname (uiop:ensure-directory-pathname *anchor-dir*) ".apprentice/conversations/"))
       (error "No anchor dir specified for conversation storage")))
 
 (defun convo-base-dir (&key (path nil) (from-anchor nil))
