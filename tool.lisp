@@ -202,6 +202,27 @@
                     code))))
 
 
+;;;; Lisp Eval Tool
+
+
+(deftool eval-lisp
+  "Evaluate a Common Lisp expression in the live Apprentice environment. Use this to inspect
+   variables, discover symbols with apropos, test functions, or evaluate scratch files."
+  ((form :string "The Common Lisp S-expression string to evaluate"))
+  :fn (let ((*package* (find-package :apprentice))
+	    (out (make-string-output-stream)))
+	(handler-case
+	    (let* ((sexp (with-input-from-string (in form) (read in)))
+		   (result (let ((*standard-output* out))
+			     (eval sexp)))
+		   (printed (get-output-stream-string out)))
+	      (format nil "~@[Output:~%~a~%~]Result: ~s"
+                      (and (plusp (length printed)) printed)
+                      result))
+	  (error (e)
+	    (format nil "Evaluation error: ~a" e)))))
+
+
 ;;;; Web Tools
 
 
@@ -414,17 +435,17 @@
 
 
 (defparameter *standard-tools*
-  (list *grep-tool* *read-tool* *write-tool* *bash-tool* *web-search-tool*
+  (list *grep-tool* *read-tool* *write-tool* *bash-tool* *eval-lisp-tool* *web-search-tool*
 	*subagent-tool*))
 
 (defparameter *little-coder-tools*
-  (list *grep-tool* *read-tool* *little-coder-write-tool* *little-coder-edit-tool*
+  (list *grep-tool* *read-tool* *eval-lisp-tool* *little-coder-write-tool* *little-coder-edit-tool*
 	*little-coder-bash-tool* *web-search-tool*))
 
 (defparameter *subagent-tools*
-  (list *grep-tool* *read-tool* *write-tool* *apprentice-replace-tool*
+  (list *grep-tool* *read-tool* *write-tool* *eval-lisp-tool* *apprentice-replace-tool*
 	*bash-tool* *web-search-tool*))
 
 (defparameter *apprentice-tools*
-  (list *grep-tool* *web-search-tool* *dense-vector-search-tool* *file-tree-tool*
+  (list *grep-tool* *eval-lisp-tool* *web-search-tool* *dense-vector-search-tool* *file-tree-tool*
 	*subagent-brief-tool*))

@@ -299,6 +299,49 @@
   (values))
 
 
+;;;; Scratch Extensions
+
+
+(defparameter *scratch-filename* "scratch.lisp")
+
+(defun resolve-scratch-dir-path (level)
+  "Find the scratch directory path for the given LEVEL (:anchor or :global)."
+  (case level
+    (:global (uiop:subpathname
+	      (user-homedir-pathname)
+	      *apprentice-dir*))
+    (:anchor (if *anchor-dir*
+		 (uiop:subpathname
+		  (uiop:ensure-directory-pathname *anchor-dir*)
+		  *apprentice-dir*)
+		 nil))))
+
+(defun resolve-scratch-path (level)
+  "Find the scratch file path for the given LEVEL (:anchor or :global)."
+  (let ((scratch-dir-path (resolve-scratch-dir-path level)))
+    (when scratch-dir-path
+      (uiop:subpathname (uiop:ensure-directory-pathname scratch-dir-path)
+			*scratch-filename*))))
+
+(defun scratch-path (&optional (level :anchor))
+  "Returns path to scratch.lisp at LEVEL (:anchor or :global)."
+  (resolve-scratch-path level))
+
+(defun compile-scratch (&optional (level :anchor))
+  "Compiles and loads scratch.lisp for LEVEL (:anchor or :global)."
+  (let ((path (resolve-scratch-path level)))
+    (if (and path (uiop:file-exists-p path))
+        (handler-case
+            (let ((fasl (compile-file path)))
+              (load fasl)
+              (format t "~&Loaded and compiled ~a scratch extension from ~a~%" level path)
+              t)
+          (error (e)
+            (warn "Could not compile/load scratch (~a): ~a" path e)
+            nil))
+        nil)))
+
+
 ;;;; Model Functions
 
 
@@ -368,7 +411,7 @@
   (mapcar #'anchor-name *anchors*))
 
 (defun set-anchor-dir (dir)
-  "Sets the current anchor directory to DIR and loads its preset and env if present."
+  "Sets the current anchor directory to DIR and loads its preset, env, and scratch if present."
   (let ((new (expand-dir dir)))
     (save-anchors)
     (setf *anchor-dir* new)
@@ -377,6 +420,7 @@
       (load-anchor anchor new))
     (load-preset :anchor)
     (load-env :anchor)
+    (compile-scratch :anchor)
     new))
 
 (defun add-anchor (name)
@@ -627,7 +671,8 @@
   (values))
 
 
-;; Automatically restore global preset and env if present on package load
+;; Automatically restore global preset, env, and scratch if present on package load
 (eval-when (:load-toplevel :execute)
   (ignore-errors (load-preset :global :silent t))
-  (ignore-errors (load-env :global :silent t)))
+  (ignore-errors (load-env :global :silent t))
+  (ignore-errors (compile-scratch :global)))

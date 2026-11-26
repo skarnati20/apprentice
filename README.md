@@ -106,6 +106,9 @@ And now, chat!
 | `(load-env :global)` | Loads environment variables from global `~/.apprentice/env.sexp` | Restored alist |
 | `(list-env)` | Displays saved env variables for `:anchor` (masked) | Formatted output |
 | `(list-env :global)` | Displays saved env variables for `:global` (masked) | Formatted output |
+| `(compile-scratch)` | Compiles and loads scratch.lisp for `:anchor` | Boolean |
+| `(compile-scratch :global)` | Compiles and loads global scratch `~/.apprentice/scratch.lisp` | Boolean |
+| `(scratch-path)` | Returns path to scratch file for `:anchor` or `:global` | Pathname |
 | `(add-option :temperature 0.2)` | Adds or sets an option for the coding loop | `((:TEMPERATURE . 0.2))` |
 | `(options)` | Returns currently set options | `((:TEMPERATURE . 0.2))` |
 | `(clear-options)` | Clears all currently set options | `NIL` |

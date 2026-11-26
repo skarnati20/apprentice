@@ -23,6 +23,11 @@
    #:edit-env
    #:load-env
    #:list-env
+   ;; Scratch Extensions
+   #:scratch-path
+   #:compile-scratch
+   ;; Tools
+   #:*eval-lisp-tool*
    ;; Models
    #:available-models
    #:model
